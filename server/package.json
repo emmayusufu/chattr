@@ -8,7 +8,10 @@
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'tsc && node dist/index.js'"
   },
   "keywords": [],
-  "author": "",
+  "author": {
+    "name": "Emmanuel Kimaswa",
+    "email": "kimaswaemma36@gmail.com"
+  },
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
