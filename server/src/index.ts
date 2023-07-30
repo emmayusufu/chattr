@@ -7,6 +7,13 @@ import { RtpCodecCapability } from "mediasoup/node/lib/types";
 const app = express();
 const httpServer = createServer(app);
 const worker = await mediasoup.createWorker();
+const messages: {
+  [key: string]: {
+    sender: any;
+    message: any;
+    timestamp: number;
+  }[];
+} = {};
 
 const rooms: {
   [key: string]: {
@@ -100,6 +107,20 @@ const io = new Server(httpServer, {
 
 io.on("connection", (socket: Socket) => {
   const userId = socket.id;
+
+  socket.on("send-chat-message", (data) => {
+    const { roomId, message, sender } = data;
+    const roomMessages = messages[roomId] || [];
+    const chatMessage = { sender, message, timestamp: Date.now() };
+    roomMessages.push(chatMessage);
+    messages[roomId] = roomMessages;
+    io.to(roomId).emit("receive-chat-message", chatMessage);
+  });
+
+  socket.on("get-chat-history", (roomId) => {
+    const roomMessages = messages[roomId] || [];
+    socket.emit("receive-chat-history", roomMessages);
+  });
 
   socket.on("disconnect", () => {
     // Get the room the user is in

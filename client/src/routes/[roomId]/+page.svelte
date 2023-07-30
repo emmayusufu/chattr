@@ -9,15 +9,16 @@
 	export let data: PageData;
 
 	let localStream: MediaStream;
-	let remoteStreams: MediaStream[] = [];
+	let remoteStreams: { producerId: string; stream: MediaStream }[] = [];
 	let socket: Socket;
 	let device: mediasoupClient.Device;
 	let recvTransports: Record<string, mediasoupClient.types.Transport> = {};
-	let consumers: Record<string, mediasoupClient.types.Consumer> = {};
 	let roomId: string = data.roomId;
-
-	let audioMuted: boolean = false;
-	let videoHidden: boolean = false;
+	let chatMessage = '';
+	let messages: {
+		message: string;
+		sender: string;
+	}[] = [];
 
 	let params: { [key: string]: any } = {
 		current: {
@@ -64,8 +65,8 @@
 
 		// Get local media stream from the browser
 		localStream = await navigator.mediaDevices.getUserMedia({
-			video: !videoHidden,
-			audio: !audioMuted
+			video: true,
+			audio: true
 		});
 
 		const track = localStream.getVideoTracks()[0];
@@ -184,17 +185,64 @@
 			const consumer = await recvTransport.consume(
 				consumerParameters as mediasoupClient.types.ConsumerOptions
 			);
-			consumers[consumer.id] = consumer;
+
+			const newRemoteStream = {
+				producerId,
+				stream: new MediaStream([consumer.track])
+			};
+
+			remoteStreams.push(newRemoteStream);
+
+			console.log('A new stream has been added', remoteStreams);
+
 			const remoteVideoElement = document.createElement('video');
 			remoteVideoElement.id = producerId;
 			remoteVideoElement.srcObject = new MediaStream([consumer.track]);
 			remoteVideoElement.autoplay = true;
 			remoteVideoElement.playsInline = true;
+			remoteVideoElement.muted = false;
 			document.body.appendChild(remoteVideoElement);
 		});
+
+		socket.on('receive-chat-message', (message) => {
+			messages = [...messages, message];
+		});
+
+		// Event listener to receive chat history
+		socket.emit('get-chat-history', data.roomId);
+		socket.on('receive-chat-history', (history) => {
+			messages = history;
+		});
+	}
+
+	async function sendMessage() {
+		if (chatMessage.trim() !== '') {
+			const data = {
+				roomId,
+				message: chatMessage,
+				sender: 'User' // You can replace this with the actual user's name
+			};
+
+			// Send the chat message to the server
+			socket.emit('send-chat-message', data);
+
+			// Clear the chat input field after sending the message
+			chatMessage = '';
+		}
 	}
 </script>
 
 <svelte:head>
 	<title>{roomId}</title>
 </svelte:head>
+
+<div>
+	<input type="text" bind:value={chatMessage} />
+	<button on:click={sendMessage}>Send</button>
+</div>
+
+<div>
+	{#each messages as message}
+		<p>{message.sender}: {message.message}</p>
+	{/each}
+</div>
