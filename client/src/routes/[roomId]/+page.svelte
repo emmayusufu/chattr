@@ -3,6 +3,7 @@
 	import { Socket, io } from 'socket.io-client';
 	import * as mediasoupClient from 'mediasoup-client';
 	import type { RtpCapabilities } from 'mediasoup-client/lib/RtpParameters';
+	import VideoPlayer from '../../components/VideoPlayer.svelte';
 
 	import type { PageData } from './$types';
 
@@ -45,6 +46,8 @@
 		}
 	};
 
+	// let localVideo: HTMLVideoElement;
+
 	onMount(async () => {
 		// Connect to the signaling server
 		socket = io('http://localhost:3000');
@@ -71,6 +74,8 @@
 
 		const track = localStream.getVideoTracks()[0];
 		params.track = track;
+
+		// localVideo.srcObject = localStream;
 
 		/**
 		 * Create a transport for sending our media through mediasoup
@@ -140,10 +145,13 @@
 		// Handle a participant leaving
 		socket.on('producer-closed', ({ producerId }) => {
 			// Remove the closed producer's remote media track
-			const remoteVideoElement = document.getElementById(producerId) as HTMLVideoElement;
-			if (remoteVideoElement) {
-				remoteVideoElement.remove();
-			}
+			remoteStreams = remoteStreams.filter((stream) => {
+				stream.producerId !== producerId;
+			});
+			// const remoteVideoElement = document.getElementById(producerId) as HTMLVideoElement;
+			// if (remoteVideoElement) {
+			// 	remoteVideoElement.remove();
+			// }
 		});
 	});
 
@@ -191,21 +199,22 @@
 				stream: new MediaStream([consumer.track])
 			};
 
-			remoteStreams.push(newRemoteStream);
+			remoteStreams = [...remoteStreams, newRemoteStream];
 
 			console.log('A new stream has been added', remoteStreams);
 
-			const remoteVideoElement = document.createElement('video');
-			remoteVideoElement.id = producerId;
-			remoteVideoElement.srcObject = new MediaStream([consumer.track]);
-			remoteVideoElement.autoplay = true;
-			remoteVideoElement.playsInline = true;
-			remoteVideoElement.muted = false;
-			document.body.appendChild(remoteVideoElement);
+			// const remoteVideoElement = document.createElement('video');
+			// remoteVideoElement.id = producerId;
+			// remoteVideoElement.srcObject = new MediaStream([consumer.track]);
+			// remoteVideoElement.autoplay = true;
+			// remoteVideoElement.playsInline = true;
+			// remoteVideoElement.muted = false;
+			// document.body.appendChild(remoteVideoElement);
 		});
 
 		socket.on('receive-chat-message', (message) => {
-			messages = [...messages, message];
+			// messages = [...messages, message];
+			socket.emit('get-chat-history', data.roomId);
 		});
 
 		// Event listener to receive chat history
@@ -236,7 +245,13 @@
 	<title>{roomId}</title>
 </svelte:head>
 
-<div>
+<!-- <video bind:this={video} muted={false} autoplay /> -->
+
+{#each remoteStreams as { stream }}
+	<VideoPlayer mediaStream={stream} />
+{/each}
+
+<!-- <div>
 	<input type="text" bind:value={chatMessage} />
 	<button on:click={sendMessage}>Send</button>
 </div>
@@ -245,4 +260,4 @@
 	{#each messages as message}
 		<p>{message.sender}: {message.message}</p>
 	{/each}
-</div>
+</div> -->
