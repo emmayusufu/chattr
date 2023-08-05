@@ -23,6 +23,7 @@
 
 	let audioTrack: MediaStreamTrack;
 	let videoTrack: MediaStreamTrack;
+	let track: MediaStreamTrack;
 
 	let params: { [key: string]: any } = {
 		current: {
@@ -75,7 +76,7 @@
 			audio: true
 		});
 
-		const track = localStream.getVideoTracks()[0];
+		track = localStream.getVideoTracks()[0];
 		// params.track = track;
 
 		videoTrack = localStream.getVideoTracks()[0];
@@ -133,33 +134,36 @@
 		});
 
 		// Add our local media stream to the send transport and let it produce tracks to send to the server
-		// const producer = await sendTransport.produce(params);
-
-		// producer.on('trackended', () => {
-		// 	console.log('trackended');
-		// });
-
-		// producer.on('transportclose', () => {
-		// 	console.log('transportclose');
-		// });
-
-		const videoProducer = await sendTransport.produce({
-			track: videoTrack,
+		const producer = await sendTransport.produce({
+			track,
 			...params
 		});
+
+		producer.on('trackended', () => {
+			console.log('trackended');
+		});
+
+		producer.on('transportclose', () => {
+			console.log('transportclose');
+		});
+
+		// const videoProducer = await sendTransport.produce({
+		// 	track: videoTrack,
+		// 	...params
+		// });
 
 		// const audioProducer = await sendTransport.produce({
 		// 	track: audioTrack,
 		// 	...params
 		// });
 
-		videoProducer.on('trackended', () => {
-			console.log('video track ended');
-		});
+		// videoProducer.on('trackended', () => {
+		// 	console.log('video track ended');
+		// });
 
-		videoProducer.on('transportclose', () => {
-			console.log('video transport closed');
-		});
+		// videoProducer.on('transportclose', () => {
+		// 	console.log('video transport closed');
+		// });
 
 		// audioProducer.on('trackended', () => {
 		// 	console.log('audio track ended');
@@ -180,10 +184,6 @@
 			remoteStreams = remoteStreams.filter((stream) => {
 				stream.producerId !== producerId;
 			});
-			// const remoteVideoElement = document.getElementById(producerId) as HTMLVideoElement;
-			// if (remoteVideoElement) {
-			// 	remoteVideoElement.remove();
-			// }
 		});
 	});
 
@@ -225,6 +225,10 @@
 			const consumer = await recvTransport.consume(
 				consumerParameters as mediasoupClient.types.ConsumerOptions
 			);
+
+			console.log({
+				consumer
+			});
 
 			const newRemoteStream = {
 				producerId,
@@ -301,14 +305,14 @@
 			display: grid;
 			grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 			grid-gap: 0.5rem;
-			width: 75%;
+			width: 70%;
 			height: 100%;
 		}
 
 		& .right-sidebar {
 			display: flex;
 			flex-direction: column;
-			width: 25%;
+			width: 30%;
 			height: 100%;
 			border: 1px solid rgba(114, 114, 114, 0.544);
 
