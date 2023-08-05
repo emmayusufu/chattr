@@ -12,14 +12,6 @@
 			videoElement.srcObject = mediaStream;
 		}
 	});
-
-	// To handle updates to the media stream prop
-	// $: {
-	// 	if (videoElement && 'srcObject' in videoElement) {
-	// 		console.log('a new stream has been received');
-	// 		videoElement.srcObject = mediaStream;
-	// 	}
-	// }
 </script>
 
 <div>
@@ -27,10 +19,12 @@
 </div>
 
 <style>
-	/* Add your custom styles for the video component here */
 	video {
 		width: 100%;
-		height: 100%;
+		height: auto;
 		object-fit: cover;
+		border: 1px solid rgba(114, 114, 114, 0.544);
+		border-radius: 6px;
+		overflow: hidden;
 	}
 </style>

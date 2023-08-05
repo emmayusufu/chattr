@@ -21,6 +21,9 @@
 		sender: string;
 	}[] = [];
 
+	let audioTrack: MediaStreamTrack;
+	let videoTrack: MediaStreamTrack;
+
 	let params: { [key: string]: any } = {
 		current: {
 			encoding: [
@@ -73,7 +76,10 @@
 		});
 
 		const track = localStream.getVideoTracks()[0];
-		params.track = track;
+		// params.track = track;
+
+		videoTrack = localStream.getVideoTracks()[0];
+		audioTrack = localStream.getAudioTracks()[0];
 
 		// localVideo.srcObject = localStream;
 
@@ -127,15 +133,41 @@
 		});
 
 		// Add our local media stream to the send transport and let it produce tracks to send to the server
-		const producer = await sendTransport.produce(params);
+		// const producer = await sendTransport.produce(params);
 
-		producer.on('trackended', () => {
-			console.log('trackended');
+		// producer.on('trackended', () => {
+		// 	console.log('trackended');
+		// });
+
+		// producer.on('transportclose', () => {
+		// 	console.log('transportclose');
+		// });
+
+		const videoProducer = await sendTransport.produce({
+			track: videoTrack,
+			...params
 		});
 
-		producer.on('transportclose', () => {
-			console.log('transportclose');
+		// const audioProducer = await sendTransport.produce({
+		// 	track: audioTrack,
+		// 	...params
+		// });
+
+		videoProducer.on('trackended', () => {
+			console.log('video track ended');
 		});
+
+		videoProducer.on('transportclose', () => {
+			console.log('video transport closed');
+		});
+
+		// audioProducer.on('trackended', () => {
+		// 	console.log('audio track ended');
+		// });
+
+		// audioProducer.on('transportclose', () => {
+		// 	console.log('audio transport closed');
+		// });
 
 		// Handle joining of new participants (new Producers)
 		socket.on('new-producer', async ({ producerId }) => {
@@ -200,16 +232,6 @@
 			};
 
 			remoteStreams = [...remoteStreams, newRemoteStream];
-
-			console.log('A new stream has been added', remoteStreams);
-
-			// const remoteVideoElement = document.createElement('video');
-			// remoteVideoElement.id = producerId;
-			// remoteVideoElement.srcObject = new MediaStream([consumer.track]);
-			// remoteVideoElement.autoplay = true;
-			// remoteVideoElement.playsInline = true;
-			// remoteVideoElement.muted = false;
-			// document.body.appendChild(remoteVideoElement);
 		});
 
 		socket.on('receive-chat-message', (message) => {
@@ -242,22 +264,73 @@
 </script>
 
 <svelte:head>
-	<title>{roomId}</title>
+	<title>Room : {roomId}</title>
 </svelte:head>
 
 <!-- <video bind:this={video} muted={false} autoplay /> -->
 
-{#each remoteStreams as { stream }}
-	<VideoPlayer mediaStream={stream} />
-{/each}
+<div class="room">
+	<div class="video-grid">
+		{#each remoteStreams as { stream }}
+			<VideoPlayer mediaStream={stream} />
+		{/each}
+	</div>
 
-<!-- <div>
-	<input type="text" bind:value={chatMessage} />
-	<button on:click={sendMessage}>Send</button>
+	<div class="right-sidebar">
+		<div class="messages">
+			{#each messages as message}
+				<p>{message.sender}: {message.message}</p>
+			{/each}
+		</div>
+		<form>
+			<input type="text" bind:value={chatMessage} />
+			<button on:click={sendMessage}>Send</button>
+		</form>
+	</div>
 </div>
 
-<div>
-	{#each messages as message}
-		<p>{message.sender}: {message.message}</p>
-	{/each}
-</div> -->
+<style la>
+	.room {
+		display: flex;
+		flex-direction: row;
+		gap: 1rem;
+		height: 90vh;
+		padding: 1rem;
+
+		& .video-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+			grid-gap: 0.5rem;
+			width: 75%;
+			height: 100%;
+		}
+
+		& .right-sidebar {
+			display: flex;
+			flex-direction: column;
+			width: 25%;
+			height: 100%;
+			border: 1px solid rgba(114, 114, 114, 0.544);
+
+			& .messages {
+				flex: 1;
+				overflow-y: scroll;
+				padding: 10px;
+			}
+
+			& form {
+				display: flex;
+				flex-direction: row;
+				gap: 0.5rem;
+
+				& input {
+					width: 80%;
+				}
+
+				& button {
+					width: 20%;
+				}
+			}
+		}
+	}
+</style>
