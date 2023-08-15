@@ -1,21 +1,15 @@
-<!-- VideoPlayer.svelte -->
 <script lang="ts">
-	import { onMount } from 'svelte';
-
 	export let mediaStream: MediaStream | null;
+	export let muted = false;
+	export let mirror = false;
+
 	let videoElement: HTMLVideoElement | null = null;
 
-	// To handle cleanup when the component is unmounted
-	onMount(() => {
-		// When the media stream is available, set it as the source for the video element
-		if (videoElement && 'srcObject' in videoElement) {
-			videoElement.srcObject = mediaStream;
-		}
-	});
+	$: if (videoElement) videoElement.srcObject = mediaStream;
 </script>
 
 <div>
-	<video bind:this={videoElement} autoplay muted={false} />
+	<video bind:this={videoElement} autoplay playsinline {muted} class:mirror />
 </div>
 
 <style>
@@ -26,5 +20,9 @@
 		border: 1px solid rgba(114, 114, 114, 0.544);
 		border-radius: 6px;
 		overflow: hidden;
+	}
+
+	video.mirror {
+		transform: scaleX(-1);
 	}
 </style>
