@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { renderMarkdown } from './markdown';
+
 	export let messages: { sender: string; message: string }[];
 	export let chatMessage: string;
 	export let senderName: string;
@@ -17,7 +19,7 @@
 		{#each messages as message}
 			<div class="msg" class:is-self={message.sender === senderName}>
 				<span class="msg-sender">{message.sender}</span>
-				<span class="msg-body">{message.message}</span>
+				<div class="msg-body">{@html renderMarkdown(message.message)}</div>
 			</div>
 		{/each}
 	</div>
@@ -90,6 +92,35 @@
 		color: var(--text);
 		word-break: break-word;
 	}
+
+	.msg-body :global(p) { margin: 0; }
+	.msg-body :global(p + p),
+	.msg-body :global(ul),
+	.msg-body :global(ol),
+	.msg-body :global(pre),
+	.msg-body :global(blockquote) { margin-top: 0.3rem; }
+	.msg-body :global(ul),
+	.msg-body :global(ol) { margin-bottom: 0; padding-left: 1.1rem; }
+
+	.msg-body :global(code) {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.8em;
+		padding: 0.05rem 0.25rem;
+		background: rgba(244, 237, 228, 0.06);
+		border-radius: 3px;
+	}
+
+	.msg-body :global(pre) {
+		margin-bottom: 0;
+		padding: 0.45rem 0.6rem;
+		background: rgba(0, 0, 0, 0.3);
+		border-radius: 6px;
+		overflow-x: auto;
+	}
+
+	.msg-body :global(pre code) { background: none; padding: 0; font-size: 0.8em; line-height: 1.4; }
+	.msg-body :global(a) { color: var(--accent); text-decoration: underline; }
+	.msg-body :global(blockquote) { margin: 0; padding-left: 0.5rem; border-left: 2px solid var(--border-strong); color: var(--text-muted); }
 
 	.composer {
 		display: flex;
