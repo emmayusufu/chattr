@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { renderMarkdown } from './markdown';
 
 	export let messages: { sender: string; message: string }[];
@@ -6,6 +7,24 @@
 	export let senderName: string;
 	export let onSend: () => void;
 	export let encrypted = false;
+
+	let textareaEl: HTMLTextAreaElement;
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			if (chatMessage.trim()) onSend();
+		}
+	}
+
+	async function autoResize() {
+		await tick();
+		if (!textareaEl) return;
+		textareaEl.style.height = 'auto';
+		textareaEl.style.height = Math.min(textareaEl.scrollHeight, 120) + 'px';
+	}
+
+	$: if (chatMessage !== undefined) autoResize();
 </script>
 
 <div class="chat-pane">
@@ -24,7 +43,13 @@
 		{/each}
 	</div>
 	<form class="composer" on:submit|preventDefault={onSend}>
-		<input type="text" bind:value={chatMessage} placeholder="Say something —" />
+		<textarea
+			bind:this={textareaEl}
+			bind:value={chatMessage}
+			placeholder="Say something —"
+			rows="1"
+			on:keydown={handleKeydown}
+		/>
 		<button type="submit" disabled={!chatMessage.trim()}>send</button>
 	</form>
 </div>
@@ -128,16 +153,20 @@
 		background: var(--bg);
 	}
 
-	.composer input {
+	.composer textarea {
 		flex: 1;
 		padding: 0.85rem 1rem;
 		border: none;
 		font-size: 0.9rem;
+		font-family: inherit;
 		color: var(--text);
 		outline: none;
+		resize: none;
+		min-height: 44px;
+		max-height: 120px;
 	}
 
-	.composer input::placeholder {
+	.composer textarea::placeholder {
 		color: var(--text-faint);
 	}
 
