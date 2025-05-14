@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
 
 	export let stream: MediaStream | null = null;
@@ -7,10 +8,40 @@
 	export let mirror = false;
 	export let isLocal = false;
 	export let isCamOff = false;
+	export let isScreen = false;
 	export let tag: string | null = null;
+
+	let tileEl: HTMLDivElement;
+	let videoAR: number | null = null;
+	let rafId: number | null = null;
+
+	function pollVideoSize() {
+		if (!isScreen || !tileEl) return;
+		const video = tileEl.querySelector('video');
+		if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+			const ar = video.videoWidth / video.videoHeight;
+			if (ar !== videoAR) videoAR = ar;
+		}
+		rafId = requestAnimationFrame(pollVideoSize);
+	}
+
+	$: if (isScreen && stream && tileEl) {
+		pollVideoSize();
+	}
+
+	onDestroy(() => {
+		if (rafId !== null) cancelAnimationFrame(rafId);
+	});
 </script>
 
-<div class="tile" class:is-local={isLocal} class:is-cam-off={isCamOff}>
+<div
+	class="tile"
+	class:is-local={isLocal}
+	class:is-cam-off={isCamOff}
+	class:is-screen={isScreen}
+	bind:this={tileEl}
+	style:aspect-ratio={isScreen && videoAR ? `${videoAR}` : undefined}
+>
 	{#if stream}
 		<VideoPlayer mediaStream={stream} {muted} {mirror} />
 	{/if}
@@ -51,6 +82,14 @@
 		object-fit: cover;
 		border: none;
 		border-radius: 0;
+	}
+
+	.tile.is-screen :global(video) {
+		object-fit: contain;
+	}
+
+	.tile.is-screen {
+		background: #000;
 	}
 
 	.cam-off-cover {

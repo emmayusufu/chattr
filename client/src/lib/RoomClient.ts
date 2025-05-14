@@ -11,6 +11,7 @@ export type Participant = {
 	name: string;
 	videoStream: MediaStream | null;
 	audioStream: MediaStream | null;
+	screenStream: MediaStream | null;
 };
 
 export type ChatMessage = { sender: string; message: string };
@@ -44,6 +45,7 @@ export class RoomClient {
 	readonly participants: Writable<Record<string, Participant>> = writable({});
 	readonly messages: Writable<ChatMessage[]> = writable([]);
 	readonly localStream: Writable<MediaStream | null> = writable(null);
+	readonly localScreenStream: Writable<MediaStream | null> = writable(null);
 	readonly reconnecting: Writable<boolean> = writable(false);
 	readonly reconnectFailed: Writable<boolean> = writable(false);
 	readonly mediaError: Writable<string | null> = writable(null);
@@ -73,10 +75,13 @@ export class RoomClient {
 	private videoSendTransport: mediasoupClient.types.Transport | null = null;
 	private videoProducer: mediasoupClient.types.Producer | null = null;
 	private audioProducer: mediasoupClient.types.Producer | null = null;
+	private screenSendTransport: mediasoupClient.types.Transport | null = null;
+	private screenProducer: mediasoupClient.types.Producer | null = null;
 	private recvTransports: Record<string, mediasoupClient.types.Transport> = {};
 
 	private producerToUser: Record<string, string> = {};
 	private producerKinds: Record<string, 'audio' | 'video'> = {};
+	private producerIsScreen: Record<string, boolean> = {};
 	private consumedProducerIds = new Set<string>();
 
 	constructor({ roomId, name, serverUrl, chatSecret, inviteToken }: RoomClientOptions) {
@@ -167,7 +172,7 @@ export class RoomClient {
 	private async completeAdmission(ack: AdmissionAck): Promise<void> {
 		const initial: Record<string, Participant> = {};
 		for (const p of ack.participants ?? []) {
-			initial[p.userId] = { name: p.name, videoStream: null, audioStream: null };
+			initial[p.userId] = { name: p.name, videoStream: null, audioStream: null, screenStream: null };
 		}
 		this.participants.set(initial);
 
@@ -320,7 +325,6 @@ export class RoomClient {
 	async toggleCam(): Promise<void> {
 		if (!this.socket || !this.device) return;
 		const camOff = await this.readStore(this.isCamOff);
-		const sharing = await this.readStore(this.isSharing);
 
 		if (camOff) {
 			try {
@@ -333,10 +337,8 @@ export class RoomClient {
 					this.cameraStream.addTrack(newTrack);
 				}
 
-				if (!sharing) {
-					await this.recreateVideoProducer(newTrack);
-					this.localStream.set(new MediaStream(this.cameraStream!.getTracks()));
-				}
+				await this.recreateVideoProducer(newTrack);
+				this.localStream.set(new MediaStream(this.cameraStream!.getTracks()));
 				this.isCamOff.set(false);
 			} catch (err) {
 				console.error('Failed to turn camera on:', err);
@@ -347,18 +349,16 @@ export class RoomClient {
 			if (this.cameraStream) {
 				this.cameraStream.getVideoTracks().forEach((t) => this.cameraStream!.removeTrack(t));
 			}
-			if (!sharing) {
-				await this.recreateVideoProducer(null);
-				this.localStream.set(
-					this.cameraStream ? new MediaStream(this.cameraStream.getTracks()) : null
-				);
-			}
+			await this.recreateVideoProducer(null);
+			this.localStream.set(
+				this.cameraStream ? new MediaStream(this.cameraStream.getTracks()) : null
+			);
 			this.isCamOff.set(true);
 		}
 	}
 
 	async toggleScreen(): Promise<void> {
-		if (!this.socket || !this.device || !this.cameraStream) return;
+		if (!this.socket || !this.device) return;
 		const sharing = await this.readStore(this.isSharing);
 		if (sharing) {
 			await this.stopShare();
@@ -367,12 +367,36 @@ export class RoomClient {
 		try {
 			this.screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
 			const screenTrack = this.screenStream.getVideoTracks()[0];
-			await this.recreateVideoProducer(screenTrack, { simulcast: false });
-			this.localStream.set(this.screenStream);
+
+			const { transportOptions } = await withRetry(() =>
+				emitWithTimeout<{ transportOptions: any }>(this.socket, 'create-send-transport', {
+					roomId: this.roomId
+				})
+			);
+			this.screenSendTransport = this.device.createSendTransport({
+				...transportOptions,
+				iceServers
+			});
+			this.setupSendTransport(this.screenSendTransport);
+
+			this.screenProducer = await withRetry(() =>
+				this.screenSendTransport!.produce({
+					track: screenTrack,
+					codecOptions,
+					stopTracks: false,
+					appData: { isScreen: true }
+				})
+			);
+
+			this.localScreenStream.set(this.screenStream);
 			this.isSharing.set(true);
 			screenTrack.onended = () => this.stopShare();
 		} catch (err) {
 			console.error('Screen share failed:', err);
+			if (this.screenStream) {
+				this.screenStream.getTracks().forEach((t) => t.stop());
+				this.screenStream = null;
+			}
 		}
 	}
 
@@ -397,34 +421,22 @@ export class RoomClient {
 	}
 
 	private async stopShare(): Promise<void> {
+		if (this.screenProducer) {
+			const id = this.screenProducer.id;
+			this.screenProducer.close();
+			this.socket?.emit('close-producer', { roomId: this.roomId, producerId: id });
+			this.screenProducer = null;
+		}
+		if (this.screenSendTransport) {
+			this.screenSendTransport.close();
+			this.screenSendTransport = null;
+		}
 		if (this.screenStream) {
 			this.screenStream.getTracks().forEach((t) => t.stop());
 			this.screenStream = null;
 		}
-
-		const camOff = await this.readStore(this.isCamOff);
-
-		if (!camOff) {
-			try {
-				this.cameraVideoTrack?.stop();
-				const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-				const newTrack = stream.getVideoTracks()[0];
-				this.cameraVideoTrack = newTrack;
-				if (this.cameraStream) {
-					this.cameraStream.getVideoTracks().forEach((t) => this.cameraStream!.removeTrack(t));
-					this.cameraStream.addTrack(newTrack);
-				}
-				await this.recreateVideoProducer(newTrack);
-			} catch (err) {
-				console.error('Failed to restore camera after share:', err);
-				await this.recreateVideoProducer(null);
-			}
-		} else {
-			await this.recreateVideoProducer(null);
-		}
-
+		this.localScreenStream.set(null);
 		this.isSharing.set(false);
-		this.localStream.set(this.cameraStream ? new MediaStream(this.cameraStream.getTracks()) : null);
 	}
 
 	private async recreateVideoProducer(
@@ -477,15 +489,21 @@ export class RoomClient {
 			}
 		});
 
-		transport.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
+		transport.on('produce', async ({ kind, rtpParameters, appData }, callback, errback) => {
 			try {
 				const { id, otherProducers } = await emitWithTimeout<{
 					id: string;
-					otherProducers: { producerId: string; name: string; userId: string }[];
+					otherProducers: {
+						producerId: string;
+						name: string;
+						userId: string;
+						appData: Record<string, unknown>;
+					}[];
 				}>(this.socket, 'produce', {
 					transportId: transport.id,
 					kind,
 					rtpParameters,
+					appData,
 					roomId: this.roomId
 				});
 
@@ -538,14 +556,19 @@ export class RoomClient {
 			this.consumedProducerIds.delete(producerId);
 			const userId = this.producerToUser[producerId];
 			const kind = this.producerKinds[producerId];
+			const isScreen = this.producerIsScreen[producerId];
 			delete this.producerToUser[producerId];
 			delete this.producerKinds[producerId];
+			delete this.producerIsScreen[producerId];
 
 			if (userId) {
 				this.participants.update((p) => {
 					if (!p[userId]) return p;
 					const next = { ...p[userId] };
-					if (kind === 'video') next.videoStream = null;
+					if (kind === 'video') {
+						if (isScreen) next.screenStream = null;
+						else next.videoStream = null;
+					}
 					if (kind === 'audio') next.audioStream = null;
 					return { ...p, [userId]: next };
 				});
@@ -600,6 +623,7 @@ export class RoomClient {
 		this.participants.set({});
 		this.producerToUser = {};
 		this.producerKinds = {};
+		this.producerIsScreen = {};
 		this.consumedProducerIds.clear();
 		this.videoSendTransport = null;
 		this.videoProducer = null;
@@ -643,7 +667,7 @@ export class RoomClient {
 
 			const next: Record<string, Participant> = {};
 			for (const p of existing) {
-				next[p.userId] = { name: p.name, videoStream: null, audioStream: null };
+				next[p.userId] = { name: p.name, videoStream: null, audioStream: null, screenStream: null };
 			}
 			this.participants.set(next);
 
@@ -664,23 +688,25 @@ export class RoomClient {
 			});
 			this.setupSendTransport(audioSendTransport);
 
-			const sharing = await this.readStore(this.isSharing);
+			if (this.screenStream) {
+				this.screenStream.getTracks().forEach((t) => t.stop());
+				this.screenStream = null;
+			}
+			this.screenProducer = null;
+			this.screenSendTransport = null;
+			this.localScreenStream.set(null);
+			this.isSharing.set(false);
+
 			const camOff = await this.readStore(this.isCamOff);
 			const muted = await this.readStore(this.isMuted);
 
-			const videoTrack =
-				sharing && this.screenStream
-					? this.screenStream.getVideoTracks()[0]
-					: !camOff && this.cameraVideoTrack
-					? this.cameraVideoTrack
-					: null;
-
+			const videoTrack = !camOff && this.cameraVideoTrack ? this.cameraVideoTrack : null;
 			if (videoTrack) {
 				this.videoProducer = await this.videoSendTransport.produce({
 					track: videoTrack,
 					codecOptions,
 					stopTracks: false,
-					...(sharing ? {} : { encodings: cameraEncodings })
+					encodings: cameraEncodings
 				});
 			}
 
@@ -730,7 +756,11 @@ export class RoomClient {
 			this.recvTransports[recvTransport.id] = recvTransport;
 
 			const consumerOptions = await withRetry(() =>
-				emitWithTimeout<mediasoupClient.types.ConsumerOptions>(this.socket, 'consume', {
+				emitWithTimeout<
+					mediasoupClient.types.ConsumerOptions & {
+						appData?: Record<string, unknown>;
+					}
+				>(this.socket, 'consume', {
 					producerId,
 					transportId: recvTransport.id,
 					roomId: this.roomId,
@@ -742,12 +772,24 @@ export class RoomClient {
 			const stream = new MediaStream([consumer.track]);
 			const userId = this.producerToUser[producerId];
 			this.producerKinds[producerId] = consumer.kind as 'audio' | 'video';
+			const isScreen = !!(consumerOptions.appData?.isScreen);
+			this.producerIsScreen[producerId] = isScreen;
+
+			if (consumer.kind === 'video') {
+				this.socket?.emit('request-keyframe', { roomId: this.roomId, producerId });
+				setTimeout(() => {
+					this.socket?.emit('request-keyframe', { roomId: this.roomId, producerId });
+				}, 800);
+			}
 
 			if (userId) {
 				this.participants.update((p) => {
 					if (!p[userId]) return p;
 					const next = { ...p[userId] };
-					if (consumer.kind === 'video') next.videoStream = stream;
+					if (consumer.kind === 'video') {
+						if (isScreen) next.screenStream = stream;
+						else next.videoStream = stream;
+					}
 					if (consumer.kind === 'audio') next.audioStream = stream;
 					return { ...p, [userId]: next };
 				});
@@ -761,7 +803,7 @@ export class RoomClient {
 	private upsertParticipant(userId: string, name: string): void {
 		this.participants.update((p) => {
 			if (p[userId]) return p;
-			return { ...p, [userId]: { name, videoStream: null, audioStream: null } };
+			return { ...p, [userId]: { name, videoStream: null, audioStream: null, screenStream: null } };
 		});
 	}
 
