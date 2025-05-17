@@ -128,8 +128,8 @@
 			>Tuning in<span class="dots"><span>.</span><span>.</span><span>.</span></span></span
 		>
 	</div>
-{:else if $joinStatus === 'pending'}
-	<WaitingScreen localStream={$localStream} onLeave={() => goto('/')} />
+{:else if $joinStatus === 'pending' && room}
+	<WaitingScreen {room} {roomId} onLeave={() => goto('/')} />
 {:else if $joinStatus === 'denied'}
 	<div class="screen-center">
 		<StatusCard eyebrow="not admitted" title="The host didn't let you in" tone="danger">

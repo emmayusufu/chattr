@@ -58,7 +58,7 @@ export class RoomClient {
 	readonly chatEncrypted: Writable<boolean> = writable(false);
 
 	private readonly roomId: string;
-	private readonly name: string;
+	readonly name: string;
 	private readonly serverUrl: string;
 	private readonly chatSecret?: string;
 	private readonly inviteToken?: string;
@@ -73,6 +73,7 @@ export class RoomClient {
 	private cameraVideoTrack: MediaStreamTrack | null = null;
 	private cameraAudioTrack: MediaStreamTrack | null = null;
 	private videoSendTransport: mediasoupClient.types.Transport | null = null;
+	private audioSendTransport: mediasoupClient.types.Transport | null = null;
 	private videoProducer: mediasoupClient.types.Producer | null = null;
 	private audioProducer: mediasoupClient.types.Producer | null = null;
 	private screenSendTransport: mediasoupClient.types.Transport | null = null;
@@ -190,26 +191,31 @@ export class RoomClient {
 				roomId: this.roomId
 			})
 		);
-		const audioSendTransport = this.device.createSendTransport({
+		this.audioSendTransport = this.device.createSendTransport({
 			...audioOpts.transportOptions,
 			iceServers
 		});
-		this.setupSendTransport(audioSendTransport);
+		this.setupSendTransport(this.audioSendTransport);
 
-		this.videoProducer = await withRetry(() =>
-			this.videoSendTransport!.produce({
-				track: this.cameraVideoTrack!,
-				encodings: cameraEncodings,
-				codecOptions,
-				stopTracks: false
-			})
-		);
-		this.audioProducer = await withRetry(() =>
-			audioSendTransport.produce({
-				track: this.cameraAudioTrack!,
-				stopTracks: false
-			})
-		);
+		if (this.cameraVideoTrack) {
+			this.videoProducer = await withRetry(() =>
+				this.videoSendTransport!.produce({
+					track: this.cameraVideoTrack!,
+					encodings: cameraEncodings,
+					codecOptions,
+					stopTracks: false
+				})
+			);
+		}
+		const audioTrack = this.cameraAudioTrack;
+		if (audioTrack) {
+			this.audioProducer = await withRetry(() =>
+				this.audioSendTransport!.produce({
+					track: audioTrack,
+					stopTracks: false
+				})
+			);
+		}
 
 		this.attachRoomEventHandlers();
 		this.socket?.emit('get-chat-history', this.roomId);
@@ -292,7 +298,6 @@ export class RoomClient {
 	}
 
 	async toggleMute(): Promise<void> {
-		if (!this.audioProducer || !this.socket) return;
 		const muted = await this.readStore(this.isMuted);
 
 		if (muted) {
@@ -306,7 +311,14 @@ export class RoomClient {
 					this.cameraStream.addTrack(newTrack);
 				}
 
-				await this.audioProducer.replaceTrack({ track: newTrack });
+				if (this.audioProducer) {
+					await this.audioProducer.replaceTrack({ track: newTrack });
+				} else if (this.audioSendTransport) {
+					this.audioProducer = await this.audioSendTransport.produce({
+						track: newTrack,
+						stopTracks: false
+					});
+				}
 				this.isMuted.set(false);
 			} catch (err) {
 				console.error('Failed to unmute:', err);
@@ -317,13 +329,14 @@ export class RoomClient {
 			if (this.cameraStream) {
 				this.cameraStream.getAudioTracks().forEach((t) => this.cameraStream!.removeTrack(t));
 			}
-			await this.audioProducer.replaceTrack({ track: null });
+			if (this.audioProducer) {
+				await this.audioProducer.replaceTrack({ track: null });
+			}
 			this.isMuted.set(true);
 		}
 	}
 
 	async toggleCam(): Promise<void> {
-		if (!this.socket || !this.device) return;
 		const camOff = await this.readStore(this.isCamOff);
 
 		if (camOff) {
@@ -337,7 +350,9 @@ export class RoomClient {
 					this.cameraStream.addTrack(newTrack);
 				}
 
-				await this.recreateVideoProducer(newTrack);
+				if (this.device && this.socket) {
+					await this.recreateVideoProducer(newTrack);
+				}
 				this.localStream.set(new MediaStream(this.cameraStream!.getTracks()));
 				this.isCamOff.set(false);
 			} catch (err) {
@@ -349,7 +364,9 @@ export class RoomClient {
 			if (this.cameraStream) {
 				this.cameraStream.getVideoTracks().forEach((t) => this.cameraStream!.removeTrack(t));
 			}
-			await this.recreateVideoProducer(null);
+			if (this.device && this.socket) {
+				await this.recreateVideoProducer(null);
+			}
 			this.localStream.set(
 				this.cameraStream ? new MediaStream(this.cameraStream.getTracks()) : null
 			);
@@ -682,11 +699,11 @@ export class RoomClient {
 					roomId: this.roomId
 				})
 			);
-			const audioSendTransport = this.device!.createSendTransport({
+			this.audioSendTransport = this.device!.createSendTransport({
 				...audioRejoin.transportOptions,
 				iceServers
 			});
-			this.setupSendTransport(audioSendTransport);
+			this.setupSendTransport(this.audioSendTransport);
 
 			if (this.screenStream) {
 				this.screenStream.getTracks().forEach((t) => t.stop());
@@ -711,7 +728,7 @@ export class RoomClient {
 			}
 
 			if (this.cameraAudioTrack && !muted) {
-				this.audioProducer = await audioSendTransport.produce({
+				this.audioProducer = await this.audioSendTransport.produce({
 					track: this.cameraAudioTrack,
 					stopTracks: false
 				});
