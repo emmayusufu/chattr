@@ -23,7 +23,9 @@
 		isSharing,
 		isHost,
 		pendingJoiners,
-		chatEncrypted
+		chatEncrypted,
+		aiMessages,
+		aiPending
 	} = room;
 
 	let chatMessage = '';
@@ -158,6 +160,9 @@
 			{senderName}
 			onSend={sendMessage}
 			encrypted={$chatEncrypted}
+			aiMessages={$aiMessages}
+			aiPending={$aiPending}
+			onSendAi={(text) => room.askAiPrivate(text)}
 			participants={$participants}
 			pendingJoiners={$pendingJoiners}
 			isHost={$isHost}

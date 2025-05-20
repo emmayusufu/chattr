@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Chat from './Chat.svelte';
 	import People from './People.svelte';
+	import AiChat from './AiChat.svelte';
 	import type { Participant, PendingJoiner, ChatMessage } from './RoomClient';
 
 	export let messages: ChatMessage[];
@@ -8,6 +9,10 @@
 	export let senderName: string;
 	export let onSend: () => void;
 	export let encrypted = false;
+
+	export let aiMessages: ChatMessage[] = [];
+	export let aiPending = false;
+	export let onSendAi: ((text: string) => void) | null = null;
 
 	export let participants: Record<string, Participant>;
 	export let pendingJoiners: PendingJoiner[];
@@ -20,7 +25,7 @@
 	export let open = true;
 	export let onClose: (() => void) | null = null;
 
-	let tab: 'chat' | 'people' = 'chat';
+	let tab: 'chat' | 'people' | 'ai' = 'chat';
 
 	$: pendingCount = pendingJoiners.length;
 	$: peopleCount = Object.keys(participants).length + 1;
@@ -38,6 +43,9 @@
 				<span class="tab-count" class:has-alert={pendingCount > 0}>
 					{peopleCount}{pendingCount > 0 ? ` · ${pendingCount}` : ''}
 				</span>
+			</button>
+			<button class:active={tab === 'ai'} on:click={() => (tab = 'ai')}>
+				AI
 			</button>
 		</nav>
 		{#if onClose}
@@ -59,6 +67,8 @@
 
 	{#if tab === 'chat'}
 		<Chat bind:chatMessage {messages} {senderName} {onSend} {encrypted} />
+	{:else if tab === 'ai'}
+		<AiChat {aiMessages} {aiPending} {senderName} onSendAi={onSendAi ?? (() => {})} />
 	{:else}
 		<People
 			{senderName}

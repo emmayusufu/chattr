@@ -6,6 +6,13 @@ import type { RtpCapabilities } from 'mediasoup-client/lib/RtpParameters';
 import { emitWithTimeout, withRetry } from './socket-utils.js';
 import { describeMediaError } from './media-errors.js';
 import { ChatRatchet, deriveRootKey } from './chat-crypto.js';
+import {
+	askGemini,
+	captureFrame,
+	findLargestVideo,
+	getStoredApiKey,
+	setStoredApiKey
+} from './ai.js';
 
 export type Participant = {
 	name: string;
@@ -56,6 +63,8 @@ export class RoomClient {
 	readonly pendingJoiners: Writable<PendingJoiner[]> = writable([]);
 	readonly joinStatus: Writable<JoinStatus> = writable('connecting');
 	readonly chatEncrypted: Writable<boolean> = writable(false);
+	readonly aiMessages: Writable<ChatMessage[]> = writable([]);
+	readonly aiPending: Writable<boolean> = writable(false);
 
 	private readonly roomId: string;
 	readonly name: string;
@@ -420,10 +429,20 @@ export class RoomClient {
 	async sendMessage(text: string): Promise<void> {
 		const trimmed = text.trim();
 		if (!trimmed || !this.socket) return;
-		let payload = trimmed;
-		if (this.chatRatchet) {
+		await this.broadcastChat(trimmed, this.name);
+	}
+
+	private async broadcastChat(
+		plaintext: string,
+		sender: string,
+		opts: { encrypt?: boolean } = {}
+	): Promise<void> {
+		if (!this.socket) return;
+		const encrypt = opts.encrypt ?? true;
+		let payload = plaintext;
+		if (encrypt && this.chatRatchet) {
 			try {
-				payload = await this.chatRatchet.encrypt(trimmed);
+				payload = await this.chatRatchet.encrypt(plaintext);
 			} catch (err) {
 				console.error('chat encrypt failed:', err);
 				return;
@@ -432,9 +451,67 @@ export class RoomClient {
 		this.socket.emit('send-chat-message', {
 			roomId: this.roomId,
 			message: payload,
-			sender: this.name
+			sender
 		});
-		this.messages.update((list) => [...list, { sender: this.name, message: trimmed }]);
+		if (sender === this.name) {
+			this.messages.update((list) => [...list, { sender, message: plaintext }]);
+		}
+	}
+
+	async askAiPrivate(text: string): Promise<void> {
+		const trimmed = text.trim();
+		if (!trimmed) return;
+
+		if (trimmed.startsWith('/ai-key')) {
+			const key = trimmed.slice('/ai-key'.length).trim();
+			setStoredApiKey(key);
+			this.aiMessages.update((list) => [
+				...list,
+				{ sender: 'AI', message: key ? 'Gemini key saved.' : 'Gemini key cleared.' }
+			]);
+			return;
+		}
+
+		const apiKey = getStoredApiKey();
+		if (!apiKey) {
+			this.aiMessages.update((list) => [
+				...list,
+				{ sender: this.name, message: trimmed },
+				{ sender: 'AI', message: 'No Gemini key. Send `/ai-key YOUR_KEY` to set one.' }
+			]);
+			return;
+		}
+
+		this.aiMessages.update((list) => [...list, { sender: this.name, message: trimmed }]);
+		this.aiPending.set(true);
+
+		try {
+			const history = await this.readStore(this.aiMessages);
+			const context = history
+				.slice(-8)
+				.map((m) => `${m.sender}: ${m.message}`)
+				.join('\n');
+
+			let imageBase64: string | null = null;
+			const video = findLargestVideo();
+			if (video) {
+				try {
+					imageBase64 = await captureFrame(video);
+				} catch {
+					/* skip */
+				}
+			}
+
+			const answer = await askGemini({ apiKey, question: trimmed, imageBase64, context });
+			this.aiMessages.update((list) => [...list, { sender: 'AI', message: answer }]);
+		} catch (err: any) {
+			this.aiMessages.update((list) => [
+				...list,
+				{ sender: 'AI', message: `error: ${err?.message ?? err}` }
+			]);
+		} finally {
+			this.aiPending.set(false);
+		}
 	}
 
 	private async stopShare(): Promise<void> {
