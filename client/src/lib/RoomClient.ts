@@ -13,6 +13,10 @@ import {
 	getStoredApiKey,
 	setStoredApiKey
 } from './ai.js';
+import {
+	createRecognition,
+	type TranscriptSegment
+} from './transcription.js';
 
 export type Participant = {
 	name: string;
@@ -65,6 +69,8 @@ export class RoomClient {
 	readonly chatEncrypted: Writable<boolean> = writable(false);
 	readonly aiMessages: Writable<ChatMessage[]> = writable([]);
 	readonly aiPending: Writable<boolean> = writable(false);
+	readonly transcript: Writable<TranscriptSegment[]> = writable([]);
+	readonly isTranscribing: Writable<boolean> = writable(false);
 
 	private readonly roomId: string;
 	readonly name: string;
@@ -93,6 +99,7 @@ export class RoomClient {
 	private producerKinds: Record<string, 'audio' | 'video'> = {};
 	private producerIsScreen: Record<string, boolean> = {};
 	private consumedProducerIds = new Set<string>();
+	private recognition: { start: () => void; stop: () => void } | null = null;
 
 	constructor({ roomId, name, serverUrl, chatSecret, inviteToken }: RoomClientOptions) {
 		this.roomId = roomId;
@@ -301,6 +308,8 @@ export class RoomClient {
 
 	async leave(): Promise<void> {
 		this.hasJoined = false;
+		this.recognition?.stop();
+		this.recognition = null;
 		this.cameraStream?.getTracks().forEach((t) => t.stop());
 		this.screenStream?.getTracks().forEach((t) => t.stop());
 		this.socket?.disconnect();
@@ -514,6 +523,53 @@ export class RoomClient {
 		}
 	}
 
+	toggleTranscription(): void {
+		const socket = this.socket;
+		if (!socket) return;
+
+		if (this.recognition) {
+			socket.emit('stop-transcription', { roomId: this.roomId });
+			this.stopRecognition();
+		} else {
+			socket.emit('start-transcription', { roomId: this.roomId });
+			this.startRecognition();
+		}
+	}
+
+	private startRecognition(): void {
+		if (this.recognition) return;
+		const socket = this.socket;
+		if (!socket) return;
+
+		this.recognition = createRecognition(
+			(text, isFinal) => {
+				if (!isFinal) return;
+				const segment: TranscriptSegment = {
+					speaker: this.name,
+					text,
+					timestamp: Date.now()
+				};
+				this.transcript.update((t) => [...t, segment]);
+				socket.emit('transcript-segment', {
+					roomId: this.roomId,
+					segment
+				});
+			},
+			(error) => console.warn('speech recognition error:', error)
+		);
+
+		if (this.recognition) {
+			this.recognition.start();
+			this.isTranscribing.set(true);
+		}
+	}
+
+	private stopRecognition(): void {
+		this.recognition?.stop();
+		this.recognition = null;
+		this.isTranscribing.set(false);
+	}
+
 	private async stopShare(): Promise<void> {
 		if (this.screenProducer) {
 			const id = this.screenProducer.id;
@@ -700,6 +756,21 @@ export class RoomClient {
 				}
 			}
 			this.messages.set(decoded);
+		});
+
+		this.socket.on('transcript-segment', (data: { segment: TranscriptSegment }) => {
+			if (data?.segment?.speaker === this.name) return;
+			if (data?.segment) {
+				this.transcript.update((t) => [...t, data.segment]);
+			}
+		});
+
+		this.socket.on('start-transcription', () => {
+			this.startRecognition();
+		});
+
+		this.socket.on('stop-transcription', () => {
+			this.stopRecognition();
 		});
 
 		this.socket.on('disconnect', () => {

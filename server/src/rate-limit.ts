@@ -10,6 +10,7 @@ const limits: Record<string, { capacity: number; refillPerSec: number }> = {
   "request-keyframe": { capacity: 30, refillPerSec: 15 },
   "create-invite": { capacity: 10, refillPerSec: 1 },
   "revoke-invite": { capacity: 20, refillPerSec: 5 },
+  "transcript-segment": { capacity: 30, refillPerSec: 10 },
 };
 
 const defaultLimit = { capacity: 30, refillPerSec: 20 };

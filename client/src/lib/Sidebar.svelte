@@ -2,7 +2,9 @@
 	import Chat from './Chat.svelte';
 	import People from './People.svelte';
 	import AiChat from './AiChat.svelte';
+	import Minutes from './Minutes.svelte';
 	import type { Participant, PendingJoiner, ChatMessage } from './RoomClient';
+	import type { TranscriptSegment } from './transcription';
 
 	export let messages: ChatMessage[];
 	export let chatMessage: string;
@@ -13,6 +15,10 @@
 	export let aiMessages: ChatMessage[] = [];
 	export let aiPending = false;
 	export let onSendAi: ((text: string) => void) | null = null;
+
+	export let transcript: TranscriptSegment[] = [];
+	export let isTranscribing = false;
+	export let onToggleTranscription: () => void = () => {};
 
 	export let participants: Record<string, Participant>;
 	export let pendingJoiners: PendingJoiner[];
@@ -25,7 +31,7 @@
 	export let open = true;
 	export let onClose: (() => void) | null = null;
 
-	let tab: 'chat' | 'people' | 'ai' = 'chat';
+	let tab: 'chat' | 'people' | 'ai' | 'minutes' = 'chat';
 
 	$: pendingCount = pendingJoiners.length;
 	$: peopleCount = Object.keys(participants).length + 1;
@@ -46,6 +52,9 @@
 			</button>
 			<button class:active={tab === 'ai'} on:click={() => (tab = 'ai')}>
 				AI
+			</button>
+			<button class:active={tab === 'minutes'} on:click={() => (tab = 'minutes')}>
+				Minutes
 			</button>
 		</nav>
 		{#if onClose}
@@ -69,7 +78,7 @@
 		<Chat bind:chatMessage {messages} {senderName} {onSend} {encrypted} />
 	{:else if tab === 'ai'}
 		<AiChat {aiMessages} {aiPending} {senderName} onSendAi={onSendAi ?? (() => {})} />
-	{:else}
+	{:else if tab === 'people'}
 		<People
 			{senderName}
 			{participants}
@@ -80,6 +89,8 @@
 			{onApproveAll}
 			{onCreateInvite}
 		/>
+	{:else}
+		<Minutes {transcript} {isTranscribing} {isHost} onToggle={onToggleTranscription} />
 	{/if}
 </aside>
 

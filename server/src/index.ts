@@ -30,6 +30,24 @@ io.on("connection", (socket: Socket) => {
   registerChatHandlers(io, socket);
   registerSignalingHandlers(io, socket);
   registerDisconnectHandler(io, socket);
+
+  socket.on("transcript-segment", (data: { roomId?: string; segment?: unknown }) => {
+    if (typeof data?.roomId === "string" && data.segment) {
+      socket.to(data.roomId).emit("transcript-segment", { segment: data.segment });
+    }
+  });
+
+  socket.on("start-transcription", (data: { roomId?: string }) => {
+    if (typeof data?.roomId === "string") {
+      socket.to(data.roomId).emit("start-transcription");
+    }
+  });
+
+  socket.on("stop-transcription", (data: { roomId?: string }) => {
+    if (typeof data?.roomId === "string") {
+      socket.to(data.roomId).emit("stop-transcription");
+    }
+  });
 });
 
 httpServer.listen(config.port, () => {

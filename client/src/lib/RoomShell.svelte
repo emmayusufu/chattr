@@ -25,7 +25,9 @@
 		pendingJoiners,
 		chatEncrypted,
 		aiMessages,
-		aiPending
+		aiPending,
+		transcript,
+		isTranscribing
 	} = room;
 
 	let chatMessage = '';
@@ -163,6 +165,9 @@
 			aiMessages={$aiMessages}
 			aiPending={$aiPending}
 			onSendAi={(text) => room.askAiPrivate(text)}
+			transcript={$transcript}
+			isTranscribing={$isTranscribing}
+			onToggleTranscription={() => room.toggleTranscription()}
 			participants={$participants}
 			pendingJoiners={$pendingJoiners}
 			isHost={$isHost}
