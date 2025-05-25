@@ -1,14 +1,18 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { afterUpdate, tick } from 'svelte';
 	import { renderMarkdown } from './markdown';
 
 	export let messages: { sender: string; message: string }[];
 	export let chatMessage: string;
 	export let senderName: string;
 	export let onSend: () => void;
-	export let encrypted = false;
 
+	let messagesEl: HTMLDivElement;
 	let textareaEl: HTMLTextAreaElement;
+
+	afterUpdate(() => {
+		if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+	});
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.shiftKey) {
@@ -28,29 +32,37 @@
 </script>
 
 <div class="chat-pane">
-	{#if encrypted}
-		<div class="encrypted-banner">end-to-end encrypted</div>
-	{/if}
-	<div class="messages">
+	<div class="messages" bind:this={messagesEl}>
 		{#if messages.length === 0}
-			<p class="empty">Quiet on the wire.</p>
+			<p class="empty">No messages yet</p>
 		{/if}
-		{#each messages as message}
-			<div class="msg" class:is-self={message.sender === senderName}>
-				<span class="msg-sender">{message.sender}</span>
-				<div class="msg-body">{@html renderMarkdown(message.message)}</div>
+		{#each messages as msg}
+			<div class="msg" class:is-self={msg.sender === senderName} class:is-ai={msg.sender === 'AI'}>
+				<span class="msg-sender">{msg.sender}</span>
+				<div class="msg-body">{@html renderMarkdown(msg.message)}</div>
 			</div>
 		{/each}
 	</div>
+
 	<form class="composer" on:submit|preventDefault={onSend}>
 		<textarea
 			bind:this={textareaEl}
 			bind:value={chatMessage}
-			placeholder="Say something —"
+			placeholder="Message..."
 			rows="1"
 			on:keydown={handleKeydown}
 		/>
-		<button type="submit" disabled={!chatMessage.trim()}>send</button>
+		<button
+			type="submit"
+			class="send-btn"
+			disabled={!chatMessage.trim()}
+			aria-label="Send"
+		>
+			<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<line x1="22" y1="2" x2="11" y2="13" />
+				<polygon points="22 2 15 22 11 13 2 9 22 2" />
+			</svg>
+		</button>
 	</form>
 </div>
 
@@ -63,59 +75,55 @@
 		overflow: hidden;
 	}
 
-	.encrypted-banner {
-		padding: 0.4rem 1rem;
-		background: var(--accent-soft);
-		color: var(--accent);
-		font-size: 0.7rem;
-		font-weight: 600;
-		border-bottom: 1px solid var(--border);
-	}
-
 	.messages {
 		flex: 1;
 		overflow-y: auto;
-		padding: 1rem;
+		padding: 0.6rem;
 		display: flex;
 		flex-direction: column;
-		gap: 0.85rem;
+		gap: 0.4rem;
 	}
 
 	.empty {
-		font-size: 0.9rem;
-		font-weight: 450;
+		font-size: 0.8rem;
 		color: var(--text-faint);
 		text-align: center;
-		margin: 2rem 0;
+		margin: auto 0;
 	}
 
 	.msg {
-		display: flex;
-		flex-direction: column;
-		gap: 0.15rem;
-		padding: 0.55rem 0.75rem;
-		background: var(--surface-2);
-		border-left: 2px solid var(--border);
-		border-radius: 0 2px 2px 0;
-		max-width: 92%;
+		padding: 0.4rem 0.6rem;
+		background: rgba(244, 237, 228, 0.04);
+		border-radius: 8px;
+		max-width: 90%;
 	}
 
 	.msg.is-self {
 		align-self: flex-end;
 		background: var(--accent-soft);
-		border-left-color: var(--accent);
+	}
+
+	.msg.is-ai {
+		background: rgba(244, 237, 228, 0.06);
 	}
 
 	.msg-sender {
+		display: block;
 		font-weight: 600;
-		font-size: 0.85rem;
+		font-size: 0.7rem;
 		color: var(--accent);
+		margin-bottom: 0.1rem;
+	}
+
+	.msg.is-ai .msg-sender {
+		color: var(--text-muted);
 	}
 
 	.msg-body {
-		font-size: 0.9rem;
+		font-size: 0.82rem;
 		color: var(--text);
 		word-break: break-word;
+		line-height: 1.45;
 	}
 
 	.msg-body :global(p) { margin: 0; }
@@ -149,45 +157,47 @@
 
 	.composer {
 		display: flex;
-		border-top: 1px solid var(--border);
-		background: var(--bg);
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.5rem;
+		border-top: 1px solid rgba(244, 237, 228, 0.06);
 	}
 
 	.composer textarea {
 		flex: 1;
-		padding: 0.85rem 1rem;
+		min-height: 36px;
+		max-height: 120px;
+		padding: 0.45rem 0.6rem;
 		border: none;
-		font-size: 0.9rem;
+		font-size: 0.82rem;
 		font-family: inherit;
 		color: var(--text);
 		outline: none;
+		background: rgba(244, 237, 228, 0.04);
+		border-radius: 8px;
 		resize: none;
-		min-height: 44px;
-		max-height: 120px;
+		line-height: 1.4;
 	}
 
 	.composer textarea::placeholder {
 		color: var(--text-faint);
 	}
 
-	.composer button {
-		padding: 0 1.2rem;
-		background: transparent;
-		border: none;
-		border-left: 1px solid var(--border);
-		color: var(--text-muted);
-		font-size: 0.78rem;
-		font-weight: 600;
-		transition: background 0.2s, color 0.2s;
-	}
-
-	.composer button:hover:not(:disabled) {
+	.send-btn {
+		width: 36px;
+		height: 36px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		background: var(--accent);
 		color: var(--bg);
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: opacity 0.15s;
+		flex: 0 0 36px;
 	}
 
-	.composer button:disabled {
-		color: var(--text-faint);
-		cursor: not-allowed;
-	}
+	.send-btn:hover:not(:disabled) { opacity: 0.85; }
+	.send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 </style>

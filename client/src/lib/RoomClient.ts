@@ -853,6 +853,9 @@ export class RoomClient {
 			});
 			this.setupSendTransport(this.audioSendTransport);
 
+			const camOff = await this.readStore(this.isCamOff);
+			const muted = await this.readStore(this.isMuted);
+
 			if (this.screenStream) {
 				this.screenStream.getTracks().forEach((t) => t.stop());
 				this.screenStream = null;
@@ -861,9 +864,6 @@ export class RoomClient {
 			this.screenSendTransport = null;
 			this.localScreenStream.set(null);
 			this.isSharing.set(false);
-
-			const camOff = await this.readStore(this.isCamOff);
-			const muted = await this.readStore(this.isMuted);
 
 			const videoTrack = !camOff && this.cameraVideoTrack ? this.cameraVideoTrack : null;
 			if (videoTrack) {

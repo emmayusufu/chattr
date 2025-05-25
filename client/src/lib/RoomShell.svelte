@@ -1,5 +1,4 @@
 <script lang="ts">
-	import RoomTopBar from './RoomTopBar.svelte';
 	import Tile from './Tile.svelte';
 	import Sidebar from './Sidebar.svelte';
 	import ControlBar from './ControlBar.svelte';
@@ -32,6 +31,16 @@
 
 	let chatMessage = '';
 	let chatOpen = false;
+	let sidebarTab = 'chat';
+
+	function openTab(tab: string) {
+		if (chatOpen && sidebarTab === tab) {
+			chatOpen = false;
+		} else {
+			sidebarTab = tab;
+			chatOpen = true;
+		}
+	}
 
 	$: hasScreenShare =
 		$localScreenStream !== null ||
@@ -91,9 +100,7 @@
 </script>
 
 <div class="room-shell">
-	<RoomTopBar {roomId} {senderName} onToggleChat={() => (chatOpen = !chatOpen)} />
-
-	<main class="room-main">
+	<main class="room-main" class:sidebar-open={chatOpen}>
 		<section class="stage" class:split={hasScreenShare}>
 			{#if hasScreenShare}
 				<div class="screens">
@@ -118,7 +125,7 @@
 						{/if}
 					{/each}
 				</div>
-				<div class="thumbs">
+				<div class="thumbs" class:horizontal={chatOpen}>
 					{#each visibleThumbs as t (t.id)}
 						<div class="thumb-card">
 							<Tile
@@ -156,28 +163,29 @@
 			{/if}
 		</section>
 
-		<Sidebar
-			bind:chatMessage
-			messages={$messages}
-			{senderName}
-			onSend={sendMessage}
-			encrypted={$chatEncrypted}
-			aiMessages={$aiMessages}
-			aiPending={$aiPending}
-			onSendAi={(text) => room.askAiPrivate(text)}
-			transcript={$transcript}
-			isTranscribing={$isTranscribing}
-			onToggleTranscription={() => room.toggleTranscription()}
-			participants={$participants}
-			pendingJoiners={$pendingJoiners}
-			isHost={$isHost}
-			onApprove={(uid) => room.approveJoiner(uid)}
-			onDeny={(uid) => room.denyJoiner(uid)}
-			onApproveAll={() => room.approveAll()}
-			onCreateInvite={generateInvite}
-			open={chatOpen}
-			onClose={() => (chatOpen = false)}
-		/>
+		<div class="panel-col">
+			<Sidebar
+				bind:tab={sidebarTab}
+				bind:chatMessage
+				messages={$messages}
+				{senderName}
+				onSend={sendMessage}
+				aiMessages={$aiMessages}
+				aiPending={$aiPending}
+				onSendAi={(text) => room.askAiPrivate(text)}
+				transcript={$transcript}
+				isTranscribing={$isTranscribing}
+				onToggleTranscription={() => room.toggleTranscription()}
+				participants={$participants}
+				pendingJoiners={$pendingJoiners}
+				isHost={$isHost}
+				onApprove={(uid) => room.approveJoiner(uid)}
+				onDeny={(uid) => room.denyJoiner(uid)}
+				onApproveAll={() => room.approveAll()}
+				onCreateInvite={generateInvite}
+				onClose={() => (chatOpen = false)}
+			/>
+		</div>
 	</main>
 
 	<div class="audio-only">
@@ -192,9 +200,13 @@
 		isMuted={$isMuted}
 		isCamOff={$isCamOff}
 		isSharing={$isSharing}
+		{chatOpen}
+		activeTab={sidebarTab}
+		pendingCount={$pendingJoiners.length}
 		onToggleMute={() => room.toggleMute()}
 		onToggleCam={() => room.toggleCam()}
 		onToggleScreen={() => room.toggleScreen()}
+		onOpenTab={openTab}
 		{onLeave}
 	/>
 
@@ -216,45 +228,78 @@
 </div>
 
 <style>
+	:global(html:has(.room-shell)),
+	:global(body:has(.room-shell)) {
+		overflow: hidden !important;
+		height: 100% !important;
+		min-height: 0 !important;
+		max-height: 100vh !important;
+		max-height: 100dvh !important;
+	}
+
 	.room-shell {
-		min-height: 100vh;
+		position: fixed;
+		inset: 0;
 		display: flex;
 		flex-direction: column;
-		padding: 1rem 1.25rem 5rem;
-		gap: 1rem;
+		overflow: hidden;
+		background: var(--bg-deep);
 	}
 
 	.room-main {
 		flex: 1;
 		display: grid;
-		grid-template-columns: 1fr 320px;
-		gap: 1rem;
+		grid-template-columns: 1fr 0px;
 		min-height: 0;
+		overflow: hidden;
+		transition: grid-template-columns 0.3s ease;
+		padding: 0.5rem;
+		gap: 0.5rem;
+	}
+
+	.room-main.sidebar-open {
+		grid-template-columns: 1fr 340px;
+	}
+
+	.panel-col {
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
 	}
 
 	.stage {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 0.75rem;
-		align-content: start;
-		padding: 1rem;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		overflow-y: auto;
+		grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+		gap: 0.5rem;
+		padding: 0.75rem;
+		overflow: hidden;
+		min-height: 0;
+		min-width: 0;
+		place-content: center;
 	}
 
 	.stage.split {
-		grid-template-columns: minmax(0, 1fr) 200px;
+		grid-template-columns: minmax(0, 1fr) 220px;
 		grid-template-rows: minmax(0, 1fr);
-		align-content: stretch;
+		place-content: stretch;
+		padding: 0.35rem;
+		gap: 0.35rem;
 	}
 
-	.screens {
+	.stage.split .screens {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		align-items: center;
+		justify-content: center;
+		min-width: 0;
 		min-height: 0;
+	}
+
+	.stage.split .screens :global(.tile) {
+		max-width: 100%;
+		max-height: 100%;
+		min-height: 0;
+		border-radius: 8px;
 	}
 
 	.thumbs {
@@ -262,13 +307,46 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		min-height: 0;
-		overflow-y: auto;
+		overflow: hidden;
+		justify-content: center;
+	}
+
+	.thumbs.horizontal {
+		flex-direction: row;
+		overflow-y: hidden;
+		overflow-x: auto;
+		order: -1;
+		grid-column: 1 / -1;
+		justify-content: center;
+	}
+
+	.stage.split:has(.thumbs.horizontal) {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr);
 	}
 
 	.thumb-card {
-		flex: 0 0 auto;
-		border-radius: 4px;
+		flex: 1 1 0;
+		min-height: 0;
+		border-radius: 10px;
 		overflow: hidden;
+	}
+
+	.thumbs:not(.horizontal) .thumb-card {
+		max-height: 160px;
+	}
+
+	.thumbs.horizontal .thumb-card {
+		width: 200px;
+		height: 130px;
+		flex: 0 0 auto;
+	}
+
+	.thumb-card :global(.tile) {
+		aspect-ratio: auto !important;
+		width: 100%;
+		height: 100%;
+		border-radius: 0;
 	}
 
 	.thumb-overflow {
@@ -279,7 +357,34 @@
 		color: var(--text);
 		font-size: 0.85rem;
 		font-weight: 600;
-		height: 60px;
+		border-radius: 10px;
+	}
+
+	.thumbs:not(.horizontal) .thumb-overflow {
+		max-height: 140px;
+	}
+
+	.thumbs.horizontal .thumb-overflow {
+		width: 130px;
+		height: 130px;
+	}
+
+	@media (max-width: 640px) {
+		.stage.split {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-rows: auto minmax(0, 1fr);
+		}
+
+		.thumbs {
+			flex-direction: row;
+			overflow-x: auto;
+			overflow-y: hidden;
+		}
+
+		.thumb-card {
+			width: 100px;
+			height: 62px;
+		}
 	}
 
 	.audio-only {
@@ -352,22 +457,21 @@
 		opacity: 0.9;
 	}
 
-	@media (max-width: 900px) {
-		.room-main {
+	@media (max-width: 640px) {
+		.stage {
 			grid-template-columns: 1fr;
+			padding: 0.25rem;
+			gap: 0.25rem;
+		}
+
+		.room-main.sidebar-open {
+			grid-template-columns: 1fr 280px;
 		}
 	}
 
-	@media (max-width: 640px) {
-		.room-shell {
-			padding: 0.75rem 0.75rem 5rem;
-			gap: 0.75rem;
-		}
-
-		.stage {
-			grid-template-columns: 1fr;
-			padding: 0.5rem;
-			gap: 0.5rem;
+	@media (max-width: 480px) {
+		.room-main.sidebar-open {
+			grid-template-columns: 0px 1fr;
 		}
 	}
 </style>

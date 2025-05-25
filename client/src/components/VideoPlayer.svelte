@@ -15,11 +15,9 @@
 <style>
 	video {
 		width: 100%;
-		height: auto;
+		height: 100%;
+		display: block;
 		object-fit: cover;
-		border: 1px solid rgba(114, 114, 114, 0.544);
-		border-radius: 6px;
-		overflow: hidden;
 	}
 
 	video.mirror {

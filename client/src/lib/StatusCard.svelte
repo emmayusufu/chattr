@@ -18,14 +18,9 @@
 		gap: 1rem;
 		padding: 2rem;
 		background: var(--surface);
-		border: 1px solid var(--border-strong);
-		border-left: 3px solid var(--accent);
-		border-radius: 4px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
 		animation: -global-fade-up 0.4s ease;
-	}
-
-	.card.tone-danger {
-		border-left-color: var(--danger);
 	}
 
 	.eyebrow {

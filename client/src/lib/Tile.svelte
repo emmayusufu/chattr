@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
 
 	export let stream: MediaStream | null = null;
@@ -10,6 +10,13 @@
 	export let isCamOff = false;
 	export let isScreen = false;
 	export let tag: string | null = null;
+
+	$: initials = name
+		.split(' ')
+		.map((w) => w[0])
+		.join('')
+		.slice(0, 2)
+		.toUpperCase();
 
 	let tileEl: HTMLDivElement;
 	let videoAR: number | null = null;
@@ -47,28 +54,29 @@
 	{/if}
 	{#if isCamOff}
 		<div class="cam-off-cover">
-			<span>{name}</span>
+			<div class="avatar">{initials}</div>
+			<span class="cam-off-name">{name}</span>
 		</div>
 	{/if}
-	<span class="tile-label">
-		<span class="tile-name">{name}</span>
-		{#if tag}<span class="tile-tag">{tag}</span>{/if}
-	</span>
+	{#if !isCamOff}
+		<span class="tile-label">
+			{#if isScreen}
+				{#if tag}<span class="tile-tag">{tag}</span>{/if}
+			{:else}
+				<span class="tile-name">{name}</span>
+				{#if tag}<span class="tile-tag">{tag}</span>{/if}
+			{/if}
+		</span>
+	{/if}
 </div>
 
 <style>
 	.tile {
 		position: relative;
 		aspect-ratio: 16 / 10;
-		background: var(--bg-deep);
-		border: 1px solid var(--border);
-		border-radius: 3px;
+		background: var(--surface);
+		border-radius: 12px;
 		overflow: hidden;
-		transition: border-color 0.2s;
-	}
-
-	.tile.is-local {
-		border-color: var(--accent-soft);
 	}
 
 	.tile :global(div),
@@ -89,6 +97,7 @@
 	}
 
 	.tile.is-screen {
+		border-radius: 8px;
 		background: #000;
 	}
 
@@ -96,35 +105,61 @@
 		position: absolute;
 		inset: 0;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background: var(--surface-2);
-		font-size: 1.4rem;
-		font-weight: 600;
+		gap: 0.6rem;
+		background: var(--surface);
+	}
+
+	.avatar {
+		width: 56px;
+		height: 56px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: var(--surface-3);
 		color: var(--text);
+		font-size: 1.1rem;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+	}
+
+	.cam-off-name {
+		font-size: 0.8rem;
+		color: var(--text-muted);
+		font-weight: 500;
 	}
 
 	.tile-label {
 		position: absolute;
-		left: 0.6rem;
-		bottom: 0.6rem;
+		left: 0.5rem;
+		bottom: 0.5rem;
 		display: inline-flex;
 		align-items: center;
-		gap: 0.4rem;
-		padding: 0.25rem 0.55rem;
-		background: rgba(10, 8, 7, 0.7);
+		gap: 0.35rem;
+		padding: 0.2rem 0.5rem;
+		background: rgba(10, 8, 7, 0.65);
 		backdrop-filter: blur(8px);
-		border: 1px solid var(--border);
-		border-radius: 2px;
-		font-size: 0.75rem;
+		border-radius: 6px;
+		font-size: 0.72rem;
 	}
 
 	.tile-name {
 		color: var(--text);
+		font-weight: 500;
 	}
 
 	.tile-tag {
 		color: var(--accent);
 		font-size: 0.65rem;
+		font-weight: 600;
+	}
+
+	.tile.is-screen .tile-tag {
+		color: var(--text);
+		font-size: 0.72rem;
+		font-weight: 500;
 	}
 </style>
