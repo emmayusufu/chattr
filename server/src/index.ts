@@ -4,10 +4,13 @@ import { Server, type Socket } from "socket.io";
 import { registerChatHandlers } from "./handlers/chat.js";
 import { registerSignalingHandlers } from "./handlers/signaling.js";
 import { registerDisconnectHandler } from "./handlers/disconnect.js";
+import { config } from "./config.js";
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, { cors: { origin: "*" } });
+const io = new Server(httpServer, {
+  cors: { origin: config.clientOrigin },
+});
 
 io.on("connection", (socket: Socket) => {
   registerChatHandlers(io, socket);
@@ -15,6 +18,6 @@ io.on("connection", (socket: Socket) => {
   registerDisconnectHandler(socket);
 });
 
-httpServer.listen(3000, () => {
-  console.log("Server listening on port 3000 🚀");
+httpServer.listen(config.port, () => {
+  console.log(`Server listening on port ${config.port}`);
 });

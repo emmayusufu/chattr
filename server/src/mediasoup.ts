@@ -1,6 +1,6 @@
 import mediasoup from "mediasoup";
-import { networkInterfaces } from "os";
 import type { RtpCodecCapability } from "mediasoup/node/lib/types";
+import { config } from "./config.js";
 
 export const worker = await mediasoup.createWorker();
 
@@ -21,23 +21,10 @@ export const mediaCodecs: RtpCodecCapability[] = [
   },
 ];
 
-function detectLanIp(): string {
-  const ifaces = networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const iface of ifaces[name] ?? []) {
-      if (iface.family === "IPv4" && !iface.internal) {
-        return iface.address;
-      }
-    }
-  }
-  return "127.0.0.1";
-}
-
-const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || detectLanIp();
-console.log(`mediasoup announcing IP: ${announcedIp}`);
+console.log(`mediasoup announcing IP: ${config.announcedIp}`);
 
 export const webRtcTransportOptions = {
-  listenIps: [{ ip: "0.0.0.0", announcedIp }],
+  listenIps: [{ ip: "0.0.0.0", announcedIp: config.announcedIp }],
   enableUdp: true,
   enableTcp: true,
   preferUdp: true,

@@ -9,10 +9,7 @@ export type RemoteProducer = {
   userId: string;
 };
 
-export function getAllProducersInRoom(
-  roomId: string,
-  excludeUserId = ""
-): RemoteProducer[] {
+export function getAllProducersInRoom(roomId: string, excludeUserId = ""): RemoteProducer[] {
   const room = rooms[roomId];
   if (!room) return [];
 
