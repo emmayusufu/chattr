@@ -1,8 +1,14 @@
 import mediasoup from "mediasoup";
 import type { RtpCodecCapability } from "mediasoup/node/lib/types";
+import { logger } from "./logger.js";
 import { config } from "./config.js";
 
 export const worker = await mediasoup.createWorker();
+
+worker.on("died", (error) => {
+  logger.fatal({ err: error }, "mediasoup worker died, exiting for process manager restart");
+  setTimeout(() => process.exit(1), 2000);
+});
 
 export const mediaCodecs: RtpCodecCapability[] = [
   {
@@ -21,7 +27,7 @@ export const mediaCodecs: RtpCodecCapability[] = [
   },
 ];
 
-console.log(`mediasoup announcing IP: ${config.announcedIp}`);
+logger.info({ announcedIp: config.announcedIp }, "mediasoup announcing IP");
 
 export const webRtcTransportOptions = {
   listenIps: [{ ip: "0.0.0.0", announcedIp: config.announcedIp }],
