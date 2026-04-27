@@ -51,7 +51,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
 
   socket.on(
     "join-room",
-    async (data: { roomId: string; name: string }, callback) => {
+    async (data: { roomId: string; name: string; invite?: string }, callback) => {
       const roomId = validRoomId(data?.roomId);
       if (!roomId) {
         callback({ error: "invalid-room-id" });
@@ -75,6 +75,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
           users: {},
           hostUserId: null,
           pending: {},
+          invites: {},
         };
       }
 
@@ -100,12 +101,56 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      const inviteToken = typeof data?.invite === "string" ? data.invite : null;
+      if (inviteToken) {
+        const invite = room.invites[inviteToken];
+        if (invite && !invite.used) {
+          invite.used = true;
+          const admission = await admitUser(io, socket, roomId, userId, name);
+          callback({ ...admission, isHost: false, bypassed: true });
+          return;
+        }
+      }
+
       room.pending[userId] = { name, socketId: userId };
       const hostSocket = io.sockets.sockets.get(room.hostUserId);
       hostSocket?.emit("pending-join-request", { userId, name });
       callback({ status: "pending" });
     }
   );
+
+  socket.on(
+    "create-invite",
+    (data: { roomId: string }, callback: (res: { token?: string; error?: string }) => void) => {
+      const roomId = validRoomId(data?.roomId);
+      if (!roomId) {
+        callback?.({ error: "invalid-room-id" });
+        return;
+      }
+      const room = rooms[roomId];
+      if (!room || room.hostUserId !== userId) {
+        callback?.({ error: "not-host" });
+        return;
+      }
+      const tokenBytes = new Uint8Array(18);
+      globalThis.crypto.getRandomValues(tokenBytes);
+      const token = Buffer.from(tokenBytes)
+        .toString("base64")
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replaceAll("=", "");
+      room.invites[token] = { token, used: false, createdAt: Date.now() };
+      callback?.({ token });
+    }
+  );
+
+  socket.on("revoke-invite", (data: { roomId: string; token: string }) => {
+    const roomId = validRoomId(data?.roomId);
+    if (!roomId) return;
+    const room = rooms[roomId];
+    if (!room || room.hostUserId !== userId) return;
+    delete room.invites[data.token];
+  });
 
   socket.on("approve-join", async (data: { roomId: string; userId: string }, callback) => {
     const roomId = validRoomId(data?.roomId);
