@@ -1,9 +1,4 @@
-import type {
-  Consumer,
-  Producer,
-  Router,
-  WebRtcTransport,
-} from "mediasoup/node/lib/types";
+import type { Consumer, Producer, Router, WebRtcTransport } from "mediasoup/node/lib/types";
 
 export type ChatMessage = {
   sender: unknown;
@@ -23,7 +18,21 @@ export type User = {
   transports: UserTransport[];
 };
 
+export type PendingJoiner = {
+  name: string;
+  socketId: string;
+};
+
+export type Invite = {
+  token: string;
+  used: boolean;
+  createdAt: number;
+};
+
 export type Room = {
   router: Router;
   users: Record<string, User>;
+  hostUserId: string | null;
+  pending: Record<string, PendingJoiner>;
+  invites: Record<string, Invite>;
 };

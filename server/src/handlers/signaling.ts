@@ -1,61 +1,152 @@
-import type { Socket } from "socket.io";
-import type {
-  DtlsParameters,
-  RtpCapabilities,
-  RtpParameters,
-} from "mediasoup/node/lib/types";
-import {
-  worker,
-  mediaCodecs,
-  webRtcTransportOptions,
-} from "../mediasoup.js";
+import type { Server, Socket } from "socket.io";
+import type { DtlsParameters, RtpCapabilities, RtpParameters } from "mediasoup/node/lib/types";
+import { worker, mediaCodecs, webRtcTransportOptions } from "../mediasoup.js";
 import { rooms, getAllProducersInRoom } from "../rooms.js";
+import { logger } from "../logger.js";
+import { config } from "../config.js";
+import { validName, validRoomId } from "../validate.js";
 
-export function registerSignalingHandlers(socket: Socket) {
+async function admitUser(
+  io: Server,
+  socket: Socket,
+  roomId: string,
+  userId: string,
+  name: string
+): Promise<{
+  routerRtpCapabilities: RtpCapabilities;
+  transportOptions: any;
+  participants: { userId: string; name: string }[];
+}> {
+  const room = rooms[roomId];
+  const existingParticipants = Object.entries(room.users).map(([uid, u]) => ({
+    userId: uid,
+    name: u.name,
+  }));
+  const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
+
+  room.users[userId] = {
+    name,
+    producers: [],
+    consumers: [],
+    transports: [{ transport, sender: true }],
+  };
+
+  socket.join(roomId);
+  socket.to(roomId).emit("user-joined", { userId, name });
+
+  return {
+    routerRtpCapabilities: room.router.rtpCapabilities,
+    transportOptions: {
+      id: transport.id,
+      iceParameters: transport.iceParameters,
+      iceCandidates: transport.iceCandidates,
+      dtlsParameters: transport.dtlsParameters,
+    },
+    participants: existingParticipants,
+  };
+}
+
+export function registerSignalingHandlers(io: Server, socket: Socket) {
   const userId = socket.id;
 
   socket.on(
     "join-room",
     async (data: { roomId: string; name: string }, callback) => {
-      const { roomId, name } = data;
+      const roomId = validRoomId(data?.roomId);
+      if (!roomId) {
+        callback({ error: "invalid-room-id" });
+        return;
+      }
+
+      const name = validName(data?.name) ?? "guest";
 
       if (!rooms[roomId]) {
+        if (Object.keys(rooms).length >= config.maxRooms) {
+          logger.warn(
+            { roomCount: Object.keys(rooms).length, max: config.maxRooms },
+            "rejected join: server room cap reached"
+          );
+          callback({ error: "server-full" });
+          return;
+        }
         const router = await worker.createRouter({ mediaCodecs });
-        rooms[roomId] = { router, users: {} };
+        rooms[roomId] = {
+          router,
+          users: {},
+          hostUserId: null,
+          pending: {},
+        };
       }
 
       const room = rooms[roomId];
 
-      const existingParticipants = Object.entries(room.users).map(
-        ([uid, u]) => ({ userId: uid, name: u.name })
-      );
+      if (
+        Object.keys(room.users).length + Object.keys(room.pending).length >=
+        config.maxUsersPerRoom
+      ) {
+        logger.warn(
+          { roomId, occupants: Object.keys(room.users).length, max: config.maxUsersPerRoom },
+          "rejected join: room cap reached"
+        );
+        callback({ error: "room-full" });
+        return;
+      }
 
-      const transport = await room.router.createWebRtcTransport(
-        webRtcTransportOptions
-      );
+      // First user (or first after host left) becomes host and admitted immediately.
+      if (room.hostUserId === null) {
+        room.hostUserId = userId;
+        const admission = await admitUser(io, socket, roomId, userId, name);
+        callback({ ...admission, isHost: true });
+        return;
+      }
 
-      room.users[userId] = {
-        name: name || "guest",
-        producers: [],
-        consumers: [],
-        transports: [{ transport, sender: true }],
-      };
-
-      socket.join(roomId);
-      socket.to(roomId).emit("user-joined", { userId, name: name || "guest" });
-
-      callback({
-        routerRtpCapabilities: room.router.rtpCapabilities,
-        transportOptions: {
-          id: transport.id,
-          iceParameters: transport.iceParameters,
-          iceCandidates: transport.iceCandidates,
-          dtlsParameters: transport.dtlsParameters,
-        },
-        participants: existingParticipants,
-      });
+      room.pending[userId] = { name, socketId: userId };
+      const hostSocket = io.sockets.sockets.get(room.hostUserId);
+      hostSocket?.emit("pending-join-request", { userId, name });
+      callback({ status: "pending" });
     }
   );
+
+  socket.on("approve-join", async (data: { roomId: string; userId: string }, callback) => {
+    const roomId = validRoomId(data?.roomId);
+    if (!roomId) {
+      callback?.({ error: "invalid-room-id" });
+      return;
+    }
+    const room = rooms[roomId];
+    if (!room || room.hostUserId !== userId) {
+      callback?.({ error: "not-host" });
+      return;
+    }
+    const pending = room.pending[data.userId];
+    if (!pending) {
+      callback?.({ error: "not-pending" });
+      return;
+    }
+    const pendingSocket = io.sockets.sockets.get(pending.socketId);
+    if (!pendingSocket) {
+      delete room.pending[data.userId];
+      callback?.({ error: "socket-gone" });
+      return;
+    }
+
+    delete room.pending[data.userId];
+    const admission = await admitUser(io, pendingSocket, roomId, data.userId, pending.name);
+    pendingSocket.emit("join-approved", admission);
+    callback?.({ ok: true });
+  });
+
+  socket.on("deny-join", (data: { roomId: string; userId: string }) => {
+    const roomId = validRoomId(data?.roomId);
+    if (!roomId) return;
+    const room = rooms[roomId];
+    if (!room || room.hostUserId !== userId) return;
+    const pending = room.pending[data.userId];
+    if (!pending) return;
+    const pendingSocket = io.sockets.sockets.get(pending.socketId);
+    pendingSocket?.emit("join-denied");
+    delete room.pending[data.userId];
+  });
 
   socket.on(
     "connect-transport",
@@ -91,9 +182,7 @@ export function registerSignalingHandlers(socket: Socket) {
       callback
     ) => {
       const user = rooms[data.roomId]?.users[userId];
-      const transport = user?.transports.find(
-        (t) => t.transport.id === data.transportId
-      );
+      const transport = user?.transports.find((t) => t.transport.id === data.transportId);
       if (!user || !transport) return;
 
       const producer = await transport.transport.produce({
@@ -113,51 +202,41 @@ export function registerSignalingHandlers(socket: Socket) {
     }
   );
 
-  socket.on(
-    "create-receive-transport",
-    async (data: { roomId: string }, callback) => {
-      const room = rooms[data.roomId];
-      const user = room?.users[userId];
-      if (!room || !user) return;
+  socket.on("create-receive-transport", async (data: { roomId: string }, callback) => {
+    const room = rooms[data.roomId];
+    const user = room?.users[userId];
+    if (!room || !user) return;
 
-      const transport = await room.router.createWebRtcTransport(
-        webRtcTransportOptions
-      );
-      user.transports.push({ transport, sender: false });
+    const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
+    user.transports.push({ transport, sender: false });
 
-      callback({
-        transportOptions: {
-          id: transport.id,
-          iceParameters: transport.iceParameters,
-          iceCandidates: transport.iceCandidates,
-          dtlsParameters: transport.dtlsParameters,
-        },
-      });
-    }
-  );
+    callback({
+      transportOptions: {
+        id: transport.id,
+        iceParameters: transport.iceParameters,
+        iceCandidates: transport.iceCandidates,
+        dtlsParameters: transport.dtlsParameters,
+      },
+    });
+  });
 
-  socket.on(
-    "create-send-transport",
-    async (data: { roomId: string }, callback) => {
-      const room = rooms[data.roomId];
-      const user = room?.users[userId];
-      if (!room || !user) return;
+  socket.on("create-send-transport", async (data: { roomId: string }, callback) => {
+    const room = rooms[data.roomId];
+    const user = room?.users[userId];
+    if (!room || !user) return;
 
-      const transport = await room.router.createWebRtcTransport(
-        webRtcTransportOptions
-      );
-      user.transports.push({ transport, sender: true });
+    const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
+    user.transports.push({ transport, sender: true });
 
-      callback({
-        transportOptions: {
-          id: transport.id,
-          iceParameters: transport.iceParameters,
-          iceCandidates: transport.iceCandidates,
-          dtlsParameters: transport.dtlsParameters,
-        },
-      });
-    }
-  );
+    callback({
+      transportOptions: {
+        id: transport.id,
+        iceParameters: transport.iceParameters,
+        iceCandidates: transport.iceCandidates,
+        dtlsParameters: transport.dtlsParameters,
+      },
+    });
+  });
 
   socket.on(
     "connect-receive-transport",
@@ -181,17 +260,14 @@ export function registerSignalingHandlers(socket: Socket) {
     }
   );
 
-  socket.on(
-    "close-producer",
-    ({ roomId, producerId }: { roomId: string; producerId: string }) => {
-      const user = rooms[roomId]?.users[userId];
-      if (!user) return;
-      const producer = user.producers.find((p) => p.id === producerId);
-      if (!producer) return;
-      producer.close();
-      user.producers = user.producers.filter((p) => p.id !== producerId);
-    }
-  );
+  socket.on("close-producer", ({ roomId, producerId }: { roomId: string; producerId: string }) => {
+    const user = rooms[roomId]?.users[userId];
+    if (!user) return;
+    const producer = user.producers.find((p) => p.id === producerId);
+    if (!producer) return;
+    producer.close();
+    user.producers = user.producers.filter((p) => p.id !== producerId);
+  });
 
   socket.on(
     "request-keyframe",
@@ -242,7 +318,7 @@ export function registerSignalingHandlers(socket: Socket) {
       });
 
       consumer.on("transportclose", () => {
-        console.log("Consumer transport closed");
+        logger.debug({ consumerId: consumer.id }, "consumer transport closed");
       });
       consumer.on("producerclose", () => {
         socket.emit("producer-closed", { producerId: data.producerId });
@@ -253,9 +329,7 @@ export function registerSignalingHandlers(socket: Socket) {
         currentUser.transports = currentUser.transports.filter(
           (t) => t.transport.id !== userTransport.transport.id
         );
-        currentUser.consumers = currentUser.consumers.filter(
-          (c) => c.id !== consumer.id
-        );
+        currentUser.consumers = currentUser.consumers.filter((c) => c.id !== consumer.id);
       });
 
       user.consumers.push(consumer);
