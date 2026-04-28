@@ -22,7 +22,17 @@
 		<span>{senderName}</span>
 		{#if onToggleChat}
 			<button class="chat-btn" on:click={onToggleChat} aria-label="Toggle chat">
-				<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+				<svg
+					viewBox="0 0 24 24"
+					width="18"
+					height="18"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg
+				>
 				{#if unreadCount > 0}
 					<span class="badge">{unreadCount}</span>
 				{/if}
@@ -77,12 +87,7 @@
 		border-radius: 50%;
 		background: var(--accent);
 		box-shadow: 0 0 8px var(--accent-glow);
-		animation: pulse 1.6s infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; transform: scale(1); }
-		50% { opacity: 0.5; transform: scale(0.85); }
+		animation: -global-pulse 1.6s infinite;
 	}
 
 	.meta-divider {

@@ -2,7 +2,7 @@
 	import VideoPlayer from '../components/VideoPlayer.svelte';
 
 	export let stream: MediaStream | null = null;
-	export let name: string = 'guest';
+	export let name = 'guest';
 	export let muted = false;
 	export let mirror = false;
 	export let isLocal = false;

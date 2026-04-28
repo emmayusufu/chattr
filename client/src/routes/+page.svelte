@@ -11,7 +11,7 @@
 
 	let isLoggedIn = false;
 	let user: User;
-	let loading: boolean = true;
+	let loading = true;
 	let error: string | null = null;
 	let joinCode = '';
 
@@ -27,12 +27,28 @@
 
 	const newMeeting = () => {
 		const id = crypto.randomUUID().split('-')[0];
-		goto(`/${id}`);
+		const keyBytes = crypto.getRandomValues(new Uint8Array(24));
+		const key = btoa(String.fromCharCode(...keyBytes))
+			.replaceAll('+', '-')
+			.replaceAll('/', '_')
+			.replaceAll('=', '');
+		goto(`/${id}#k=${key}`);
 	};
 
 	const joinMeeting = () => {
-		const code = joinCode.trim();
-		if (code) goto(`/${code}`);
+		const value = joinCode.trim();
+		if (!value) return;
+		if (/^https?:\/\//i.test(value)) {
+			try {
+				const url = new URL(value);
+				const code = url.pathname.replace(/^\//, '');
+				if (code) goto(`/${code}${url.hash}`);
+				return;
+			} catch {
+				// fall through
+			}
+		}
+		goto(`/${value}`);
 	};
 
 	onMount(() => {
@@ -158,15 +174,14 @@
 	}
 
 	.dots span {
-		animation: blink 1.4s infinite;
+		animation: -global-blink 1.4s infinite;
 		display: inline-block;
 	}
-	.dots span:nth-child(2) { animation-delay: 0.2s; }
-	.dots span:nth-child(3) { animation-delay: 0.4s; }
-
-	@keyframes blink {
-		0%, 60%, 100% { opacity: 0.2; }
-		30% { opacity: 1; }
+	.dots span:nth-child(2) {
+		animation-delay: 0.2s;
+	}
+	.dots span:nth-child(3) {
+		animation-delay: 0.4s;
 	}
 
 	.topbar {
@@ -175,12 +190,7 @@
 		align-items: center;
 		padding-bottom: 1.25rem;
 		border-bottom: 1px solid var(--border);
-		animation: fade-down 0.6s ease;
-	}
-
-	@keyframes fade-down {
-		from { opacity: 0; transform: translateY(-8px); }
-		to { opacity: 1; transform: translateY(0); }
+		animation: -global-fade-down 0.6s ease;
 	}
 
 	.wordmark {
@@ -214,12 +224,7 @@
 		border-radius: 50%;
 		background: var(--accent);
 		box-shadow: 0 0 8px var(--accent-glow);
-		animation: pulse 1.6s infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; transform: scale(1); }
-		50% { opacity: 0.5; transform: scale(0.85); }
+		animation: -global-pulse 1.6s infinite;
 	}
 
 	.user-name {
@@ -245,12 +250,7 @@
 	.hero {
 		padding: 6rem 0 4rem;
 		max-width: 760px;
-		animation: fade-up 0.8s ease 0.2s backwards;
-	}
-
-	@keyframes fade-up {
-		from { opacity: 0; transform: translateY(16px); }
-		to { opacity: 1; transform: translateY(0); }
+		animation: -global-fade-up 0.8s ease 0.2s backwards;
 	}
 
 	.eyebrow {
@@ -403,7 +403,7 @@
 		max-width: 720px;
 		margin: 0 auto;
 		padding: 3rem 0;
-		animation: fade-up 1s ease;
+		animation: -global-fade-up 1s ease;
 	}
 
 	.signin-eyebrow {

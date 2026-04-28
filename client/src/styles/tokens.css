@@ -1,0 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@450..700&display=swap');
+
+:root {
+	--bg: #0a0807;
+	--bg-deep: #050403;
+	--surface: #14100c;
+	--surface-2: #1c1813;
+	--surface-3: #25201a;
+
+	--border: rgba(244, 237, 228, 0.08);
+	--border-strong: rgba(244, 237, 228, 0.16);
+
+	--text: #f4ede4;
+	--text-muted: #8a8076;
+	--text-faint: #4f4940;
+
+	--accent: #e98c3a;
+	--accent-soft: rgba(233, 140, 58, 0.14);
+	--accent-glow: rgba(233, 140, 58, 0.45);
+
+	--danger: #d16464;
+
+	--font: 'Fredoka', -apple-system, BlinkMacSystemFont, sans-serif;
+}

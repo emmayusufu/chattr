@@ -59,12 +59,7 @@
 		max-width: 720px;
 		margin: 0 auto;
 		padding: 1.5rem 2rem 3rem;
-		animation: fade-up 0.7s ease;
-	}
-
-	@keyframes fade-up {
-		from { opacity: 0; transform: translateY(12px); }
-		to { opacity: 1; transform: translateY(0); }
+		animation: -global-fade-up 0.7s ease;
 	}
 
 	.lobby-top {
