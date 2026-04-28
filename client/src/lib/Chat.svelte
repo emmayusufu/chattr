@@ -3,22 +3,13 @@
 	export let chatMessage: string;
 	export let senderName: string;
 	export let onSend: () => void;
-	export let open = true;
-	export let onClose: (() => void) | null = null;
+	export let encrypted = false;
 </script>
 
-<aside class="sidebar" class:is-open={open}>
-	<header class="sidebar-head">
-		<span class="sidebar-title">channel chat</span>
-		<div class="sidebar-meta">
-			<span class="sidebar-count">{messages.length}</span>
-			{#if onClose}
-				<button class="sidebar-close" on:click={onClose} aria-label="Close chat">
-					<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-				</button>
-			{/if}
-		</div>
-	</header>
+<div class="chat-pane">
+	{#if encrypted}
+		<div class="encrypted-banner">end-to-end encrypted</div>
+	{/if}
 	<div class="messages">
 		{#if messages.length === 0}
 			<p class="empty">Quiet on the wire.</p>
@@ -34,59 +25,24 @@
 		<input type="text" bind:value={chatMessage} placeholder="Say something —" />
 		<button type="submit" disabled={!chatMessage.trim()}>send</button>
 	</form>
-</aside>
+</div>
 
 <style>
-	.sidebar {
+	.chat-pane {
 		display: flex;
 		flex-direction: column;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: 4px;
+		flex: 1;
 		min-height: 0;
 		overflow: hidden;
 	}
 
-	.sidebar-head {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.85rem 1rem;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.sidebar-title {
-		font-size: 0.78rem;
-		font-weight: 600;
-		color: var(--text-muted);
-	}
-
-	.sidebar-meta {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.sidebar-count {
-		font-size: 0.72rem;
-		font-weight: 500;
-		color: var(--accent);
-		padding: 0.1rem 0.5rem;
-		border: 1px solid var(--accent-soft);
-		border-radius: 999px;
+	.encrypted-banner {
+		padding: 0.4rem 1rem;
 		background: var(--accent-soft);
-	}
-
-	.sidebar-close {
-		display: none;
-		background: transparent;
-		border: none;
-		color: var(--text-muted);
-		padding: 0.2rem;
-	}
-
-	.sidebar-close:hover {
-		color: var(--text);
+		color: var(--accent);
+		font-size: 0.7rem;
+		font-weight: 600;
+		border-bottom: 1px solid var(--border);
 	}
 
 	.messages {
@@ -173,30 +129,5 @@
 	.composer button:disabled {
 		color: var(--text-faint);
 		cursor: not-allowed;
-	}
-
-	@media (max-width: 900px) {
-		.sidebar {
-			position: fixed;
-			top: 0;
-			right: 0;
-			bottom: 0;
-			width: min(360px, 90vw);
-			z-index: 20;
-			border-radius: 0;
-			border-left: 1px solid var(--border-strong);
-			transform: translateX(100%);
-			transition: transform 0.25s ease;
-		}
-
-		.sidebar.is-open {
-			transform: translateX(0);
-		}
-
-		.sidebar-close {
-			display: inline-flex;
-			align-items: center;
-			justify-content: center;
-		}
 	}
 </style>
