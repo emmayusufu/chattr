@@ -1,12 +1,15 @@
 {
   "compilerOptions": {
-    "target": "es2017",
+    "target": "es2022",
     "module": "es2022",
     "strict": true,
     "esModuleInterop": true,
     "outDir": "dist",
     "sourceMap": true,
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "types": ["node"]
   },
+  "include": ["src/**/*"],
   "exclude": ["node_modules"]
 }
