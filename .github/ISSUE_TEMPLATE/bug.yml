@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in chattr is broken
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead.
+      placeholder: I joined a room expecting Y, got Z.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: A short list a stranger could follow to land in the same broken state.
+      placeholder: |
+        1. Open the home page
+        2. Click new meeting
+        3. Open the link in another browser
+        4. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Were you the host or a guest
+      options:
+        - host (first joiner)
+        - guest (joined via link)
+        - guest (joined via invite)
+        - not sure
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where you saw it
+      description: Local dev, your own deploy, or the demo.
+      placeholder: localhost dev / self-hosted at chattr.example.com
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 134 on macOS 15
+    validations:
+      required: true
+  - type: input
+    id: network
+    attributes:
+      label: Network
+      description: WebRTC bugs are often network-shaped. Wi-Fi, wired, behind a corporate firewall, on a VPN.
+      placeholder: home Wi-Fi
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or console output
+      description: Anything from the browser console or the server logs that looks relevant. Skip the noisy bits.
+      render: shell
