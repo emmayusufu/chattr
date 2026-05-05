@@ -1,0 +1,32 @@
+services:
+  chattr-server:
+    build:
+      context: ./server
+    container_name: chattr-server
+    network_mode: host
+    restart: unless-stopped
+    env_file: ./server/.env
+    environment:
+      NODE_ENV: production
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "require('net').createConnection(3000).on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: chattr-caddy
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - chattr-server
+
+volumes:
+  caddy-data:
+  caddy-config:
