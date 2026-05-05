@@ -122,6 +122,12 @@
 			</div>
 		</StatusCard>
 	</div>
+{:else if $joinStatus === 'connecting'}
+	<div class="screen-center">
+		<span class="tuning"
+			>Tuning in<span class="dots"><span>.</span><span>.</span><span>.</span></span></span
+		>
+	</div>
 {:else if $joinStatus === 'pending'}
 	<WaitingScreen localStream={$localStream} onLeave={() => goto('/')} />
 {:else if $joinStatus === 'denied'}
