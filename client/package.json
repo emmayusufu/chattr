@@ -1,7 +1,27 @@
 {
-	"name": "client",
-	"version": "0.0.1",
+	"name": "chattr-client",
+	"version": "0.1.0",
 	"private": true,
+	"description": "SvelteKit client for chattr. Pre-join lobby, host-approved waiting rooms, end-to-end encrypted chat over WebRTC.",
+	"license": "MIT",
+	"author": {
+		"name": "Emmanuel Yusufu Kimaswa",
+		"email": "kimaswaemma36@gmail.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/emmayusufu/chattr.git",
+		"directory": "client"
+	},
+	"engines": {
+		"node": ">=18"
+	},
+	"keywords": [
+		"webrtc",
+		"sveltekit",
+		"mediasoup-client",
+		"video-calling"
+	],
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
