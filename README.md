@@ -24,17 +24,21 @@ A multi-user video calling app built on top of a custom WebRTC SFU. Rooms, video
 
 You'll need Node 18+ and a Firebase project with Google sign-in turned on.
 
-```bash
-cd server
-cp .env.example .env
-npm install
-npm run dev
+Create env files (defaults are fine for the server; the client's needs Firebase config filled in):
 
-cd client
-cp .env.example .env
-npm install
+```bash
+cp server/.env.example server/.env
+cp client/.env.example client/.env
+```
+
+Install everything and start both processes with one command:
+
+```bash
+npm run setup
 npm run dev
 ```
+
+`npm run dev` spawns the server (port 3000) and the client (port 3030) together with prefixed output. One Ctrl-C kills both.
 
 Open `localhost:3030`, sign in or pick a name, click **New meeting**, and paste the URL into another browser. The server auto-detects your LAN IP so you can test across devices on the same Wi-Fi.
 

@@ -18,7 +18,7 @@ Anything I should know before reading the diff: a tricky part, a deliberate non-
 
 Checks before opening:
 
-- [ ] Lint and tests pass locally (`npm run lint` and `npm test` in the project I touched)
+- [ ] `npm run lint` and `npm test` pass locally
 - [ ] If touching the room flow, opened it in two browser windows and confirmed host approval still works
 - [ ] If touching media, verified mute, camera off, and screen share still release the OS indicators
 - [ ] If touching UI, checked it on a phone-sized window

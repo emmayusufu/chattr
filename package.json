@@ -1,0 +1,24 @@
+{
+	"name": "chattr",
+	"private": true,
+	"description": "Multi-user video calling app on a custom WebRTC SFU. Mediasoup under the hood.",
+	"license": "MIT",
+	"author": {
+		"name": "Emmanuel Yusufu Kimaswa",
+		"email": "kimaswaemma36@gmail.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/emmayusufu/chattr.git"
+	},
+	"scripts": {
+		"setup": "npm install && npm --prefix server install && npm --prefix client install",
+		"dev": "concurrently -n server,client -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+		"build": "npm --prefix server run build && npm --prefix client run build",
+		"test": "npm --prefix server test && npm --prefix client run test:unit",
+		"lint": "npm --prefix server run lint && npm --prefix client run lint"
+	},
+	"devDependencies": {
+		"concurrently": "^8.2.2"
+	}
+}

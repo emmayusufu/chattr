@@ -8,7 +8,7 @@ If it's a small fix, just open a PR. If it's something bigger, like a new featur
 
 ## Running it locally
 
-You need Node 18 or later. Install dependencies in both `server/` and `client/`, copy the env example files, then run `npm run dev` in each.
+You need Node 18 or later. Run `npm run setup` from the root to install root, server, and client deps. Copy `server/.env.example` to `server/.env` and the same for the client side, then `npm run dev` to start both processes together.
 
 If something doesn't work the first time, check that:
 
@@ -23,11 +23,11 @@ Three places to look:
 - `client/src/lib/*.test.ts` runs under vitest too. Lightweight unit tests for client-side helpers.
 - `client/tests/e2e/` runs under Playwright with two real browser contexts and a real server. These are the most useful when you change anything in the join flow.
 
-Run unit tests with `npm test` in either project. Run the Playwright suite with `npm run test:integration` from `client/`. The Playwright config will start the server and client itself, but if they're already running it will reuse them.
+`npm test` from the root runs server and client unit tests. The Playwright suite is `npm run test:integration` from `client/`. The Playwright config will start the server and client itself, but if they're already running it will reuse them.
 
 ## Style
 
-Prettier and ESLint are set up in both projects. Run `npm run format` (server) or `npm run lint` (client) before sending a PR.
+Prettier and ESLint are set up in both projects. `npm run lint` from the root checks both before you send a PR.
 
 A few preferences I'll push back on in review:
 
