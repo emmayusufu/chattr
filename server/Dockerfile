@@ -1,4 +1,4 @@
-FROM node:20-slim AS builder
+FROM node:24-slim AS builder
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -14,7 +14,7 @@ RUN npm ci
 COPY src ./src
 RUN npx tsc
 
-FROM node:20-slim AS prod-deps
+FROM node:24-slim AS prod-deps
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -28,7 +28,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-FROM node:20-slim
+FROM node:24-slim
 WORKDIR /app
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
