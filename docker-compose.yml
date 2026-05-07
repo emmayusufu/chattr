@@ -15,6 +15,19 @@ services:
       timeout: 5s
       retries: 3
 
+  chattr-client:
+    build:
+      context: ./client
+    container_name: chattr-client
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3030
+      HOST: 0.0.0.0
+    depends_on:
+      - chattr-server
+
   caddy:
     image: caddy:2-alpine
     container_name: chattr-caddy
@@ -26,6 +39,7 @@ services:
       - caddy-config:/config
     depends_on:
       - chattr-server
+      - chattr-client
 
 volumes:
   caddy-data:

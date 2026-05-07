@@ -3,7 +3,10 @@ import type { RtpCodecCapability } from "mediasoup/node/lib/types";
 import { logger } from "./logger.js";
 import { config } from "./config.js";
 
-export const worker = await mediasoup.createWorker();
+export const worker = await mediasoup.createWorker({
+  rtcMinPort: config.rtcMinPort,
+  rtcMaxPort: config.rtcMaxPort,
+});
 
 worker.on("died", (error) => {
   logger.fatal({ err: error }, "mediasoup worker died, exiting for process manager restart");

@@ -15,6 +15,8 @@ function detectLanIp(): string {
 export const config = {
   port: Number(process.env.PORT) || 3000,
   announcedIp: process.env.MEDIASOUP_ANNOUNCED_IP || detectLanIp(),
+  rtcMinPort: Number(process.env.RTC_MIN_PORT) || 10000,
+  rtcMaxPort: Number(process.env.RTC_MAX_PORT) || 10100,
   maxUsersPerRoom: Number(process.env.MAX_USERS_PER_ROOM) || 16,
   maxRooms: Number(process.env.MAX_ROOMS) || 100,
   clientOrigin: process.env.CLIENT_ORIGIN ?? "*",
