@@ -2,6 +2,12 @@
 
 A multi-user video calling app built on top of a custom WebRTC SFU. Rooms, video, audio, screen share, end-to-end encrypted chat, host-approved waiting rooms, one-time invite links. [mediasoup](https://mediasoup.org) under the hood.
 
+![Two-person video call with the People panel open](docs/screenshots/call.png)
+
+![Screen sharing in a live call](docs/screenshots/screen-share.png)
+
+![Chat panel with end-to-end encryption banner](docs/screenshots/chat.png)
+
 ## What it does
 
 - Multi-user calls with video, audio, screen share, and chat.
