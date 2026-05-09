@@ -13,7 +13,7 @@ export type Participant = {
 	audioStream: MediaStream | null;
 };
 
-export type ChatMessage = { sender: string; message: string };
+export type ChatMessage = { sender: string; message: string; timestamp?: number };
 export type PendingJoiner = { userId: string; name: string };
 export type JoinStatus = 'connecting' | 'pending' | 'admitted' | 'denied' | 'host-left';
 
@@ -393,7 +393,10 @@ export class RoomClient {
 			message: payload,
 			sender: this.name
 		});
-		this.messages.update((list) => [...list, { sender: this.name, message: trimmed }]);
+		this.messages.update((list) => [
+			...list,
+			{ sender: this.name, message: trimmed, timestamp: Date.now() }
+		]);
 	}
 
 	private async stopShare(): Promise<void> {
