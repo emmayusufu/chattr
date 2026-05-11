@@ -72,6 +72,7 @@ export class RoomClient {
 	private cameraAudioTrack: MediaStreamTrack | null = null;
 	private videoSendTransport: mediasoupClient.types.Transport | null = null;
 	private videoProducer: mediasoupClient.types.Producer | null = null;
+	private audioSendTransport: mediasoupClient.types.Transport | null = null;
 	private audioProducer: mediasoupClient.types.Producer | null = null;
 	private recvTransports: Record<string, mediasoupClient.types.Transport> = {};
 
@@ -185,26 +186,30 @@ export class RoomClient {
 				roomId: this.roomId
 			})
 		);
-		const audioSendTransport = this.device.createSendTransport({
+		this.audioSendTransport = this.device.createSendTransport({
 			...audioOpts.transportOptions,
 			iceServers
 		});
-		this.setupSendTransport(audioSendTransport);
+		this.setupSendTransport(this.audioSendTransport);
 
-		this.videoProducer = await withRetry(() =>
-			this.videoSendTransport!.produce({
-				track: this.cameraVideoTrack!,
-				encodings: cameraEncodings,
-				codecOptions,
-				stopTracks: false
-			})
-		);
-		this.audioProducer = await withRetry(() =>
-			audioSendTransport.produce({
-				track: this.cameraAudioTrack!,
-				stopTracks: false
-			})
-		);
+		if (this.cameraVideoTrack) {
+			this.videoProducer = await withRetry(() =>
+				this.videoSendTransport!.produce({
+					track: this.cameraVideoTrack!,
+					encodings: cameraEncodings,
+					codecOptions,
+					stopTracks: false
+				})
+			);
+		}
+		if (this.cameraAudioTrack) {
+			this.audioProducer = await withRetry(() =>
+				this.audioSendTransport!.produce({
+					track: this.cameraAudioTrack!,
+					stopTracks: false
+				})
+			);
+		}
 
 		this.attachRoomEventHandlers();
 		this.socket?.emit('get-chat-history', this.roomId);
@@ -287,7 +292,6 @@ export class RoomClient {
 	}
 
 	async toggleMute(): Promise<void> {
-		if (!this.audioProducer || !this.socket) return;
 		const muted = await this.readStore(this.isMuted);
 
 		if (muted) {
@@ -301,7 +305,14 @@ export class RoomClient {
 					this.cameraStream.addTrack(newTrack);
 				}
 
-				await this.audioProducer.replaceTrack({ track: newTrack });
+				if (this.audioProducer) {
+					await this.audioProducer.replaceTrack({ track: newTrack });
+				} else if (this.audioSendTransport) {
+					this.audioProducer = await this.audioSendTransport.produce({
+						track: newTrack,
+						stopTracks: false
+					});
+				}
 				this.isMuted.set(false);
 			} catch (err) {
 				console.error('Failed to unmute:', err);
@@ -312,13 +323,14 @@ export class RoomClient {
 			if (this.cameraStream) {
 				this.cameraStream.getAudioTracks().forEach((t) => this.cameraStream!.removeTrack(t));
 			}
-			await this.audioProducer.replaceTrack({ track: null });
+			if (this.audioProducer) {
+				await this.audioProducer.replaceTrack({ track: null });
+			}
 			this.isMuted.set(true);
 		}
 	}
 
 	async toggleCam(): Promise<void> {
-		if (!this.socket || !this.device) return;
 		const camOff = await this.readStore(this.isCamOff);
 		const sharing = await this.readStore(this.isSharing);
 
@@ -333,7 +345,7 @@ export class RoomClient {
 					this.cameraStream.addTrack(newTrack);
 				}
 
-				if (!sharing) {
+				if (this.device && this.socket && !sharing) {
 					await this.recreateVideoProducer(newTrack);
 					this.localStream.set(new MediaStream(this.cameraStream!.getTracks()));
 				}
@@ -347,7 +359,7 @@ export class RoomClient {
 			if (this.cameraStream) {
 				this.cameraStream.getVideoTracks().forEach((t) => this.cameraStream!.removeTrack(t));
 			}
-			if (!sharing) {
+			if (this.device && this.socket && !sharing) {
 				await this.recreateVideoProducer(null);
 				this.localStream.set(
 					this.cameraStream ? new MediaStream(this.cameraStream.getTracks()) : null
@@ -661,11 +673,11 @@ export class RoomClient {
 					roomId: this.roomId
 				})
 			);
-			const audioSendTransport = this.device!.createSendTransport({
+			this.audioSendTransport = this.device!.createSendTransport({
 				...audioRejoin.transportOptions,
 				iceServers
 			});
-			this.setupSendTransport(audioSendTransport);
+			this.setupSendTransport(this.audioSendTransport);
 
 			const sharing = await this.readStore(this.isSharing);
 			const camOff = await this.readStore(this.isCamOff);
@@ -688,7 +700,7 @@ export class RoomClient {
 			}
 
 			if (this.cameraAudioTrack && !muted) {
-				this.audioProducer = await audioSendTransport.produce({
+				this.audioProducer = await this.audioSendTransport.produce({
 					track: this.cameraAudioTrack,
 					stopTracks: false
 				});
