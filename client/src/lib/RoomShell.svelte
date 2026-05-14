@@ -15,6 +15,7 @@
 		participants,
 		messages,
 		localStream,
+		localScreenStream,
 		reconnecting,
 		reconnectFailed,
 		isMuted,
@@ -27,6 +28,10 @@
 
 	let chatMessage = '';
 	let chatOpen = false;
+
+	$: hasScreenShare =
+		$localScreenStream !== null ||
+		Object.values($participants).some((p) => p.screenStream !== null);
 
 	let inviteToast = '';
 	let inviteToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -67,21 +72,62 @@
 	<RoomTopBar {roomId} {senderName} onToggleChat={() => (chatOpen = !chatOpen)} />
 
 	<main class="room-main">
-		<section class="stage">
-			{#if $localStream}
-				<Tile
-					stream={$localStream}
-					name={senderName}
-					muted={true}
-					mirror={!$isSharing}
-					isLocal={true}
-					isCamOff={$isCamOff && !$isSharing}
-					tag={$isSharing ? 'sharing' : 'you'}
-				/>
+		<section class="stage" class:split={hasScreenShare}>
+			{#if hasScreenShare}
+				<div class="screens">
+					{#if $localScreenStream}
+						<Tile
+							stream={$localScreenStream}
+							name={senderName}
+							muted={true}
+							isLocal={true}
+							isScreen={true}
+							tag="your screen"
+						/>
+					{/if}
+					{#each Object.entries($participants) as [pid, p] (pid)}
+						{#if p.screenStream}
+							<Tile
+								stream={p.screenStream}
+								name={p.name}
+								isScreen={true}
+								tag={`${p.name}'s screen`}
+							/>
+						{/if}
+					{/each}
+				</div>
+				<div class="thumbnails">
+					{#if $localStream}
+						<Tile
+							stream={$localStream}
+							name={senderName}
+							muted={true}
+							mirror={true}
+							isLocal={true}
+							isCamOff={$isCamOff}
+							tag="you"
+						/>
+					{/if}
+					{#each Object.entries($participants) as [pid, p] (pid)}
+						<Tile stream={p.videoStream} name={p.name} isCamOff={!p.videoStream} />
+					{/each}
+				</div>
+			{:else}
+				{#if $localStream}
+					<Tile
+						stream={$localStream}
+						name={senderName}
+						muted={true}
+						mirror={true}
+						isLocal={true}
+						isCamOff={$isCamOff}
+						tag="you"
+					/>
+				{/if}
+				{#each Object.entries($participants) as [pid, p] (pid)}
+					<Tile stream={p.videoStream} name={p.name} isCamOff={!p.videoStream} />
+				{/each}
 			{/if}
-			{#each Object.entries($participants) as [pid, p] (pid)}
-				<Tile stream={p.videoStream} name={p.name} isCamOff={!p.videoStream} />
-			{/each}
 		</section>
 
 		<Sidebar
@@ -164,6 +210,63 @@
 		border: 1px solid var(--border);
 		border-radius: 4px;
 		overflow-y: auto;
+		min-height: 0;
+	}
+
+	.stage.split {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 220px;
+		grid-template-rows: minmax(0, 1fr);
+		gap: 0.75rem;
+		align-content: stretch;
+		overflow: hidden;
+	}
+
+	.stage.split .screens {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		min-width: 0;
+		min-height: 0;
+	}
+
+	.stage.split .screens :global(.tile) {
+		flex: 1 1 0;
+		min-height: 0;
+		max-height: none;
+		grid-column: auto;
+		aspect-ratio: auto;
+	}
+
+	.stage.split .thumbnails {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		min-height: 0;
+		overflow-y: auto;
+		padding-right: 0.25rem;
+	}
+
+	.stage.split .thumbnails :global(.tile) {
+		flex: 0 0 auto;
+		aspect-ratio: 16 / 10;
+		max-height: none;
+	}
+
+	@media (max-width: 760px) {
+		.stage.split {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-rows: minmax(0, 1fr) auto;
+		}
+		.stage.split .thumbnails {
+			flex-direction: row;
+			overflow-x: auto;
+			overflow-y: hidden;
+			max-height: 130px;
+		}
+		.stage.split .thumbnails :global(.tile) {
+			flex: 0 0 200px;
+		}
 	}
 
 	.audio-only {

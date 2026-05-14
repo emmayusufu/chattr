@@ -7,10 +7,16 @@
 	export let mirror = false;
 	export let isLocal = false;
 	export let isCamOff = false;
+	export let isScreen = false;
 	export let tag: string | null = null;
 </script>
 
-<div class="tile" class:is-local={isLocal} class:is-cam-off={isCamOff}>
+<div
+	class="tile"
+	class:is-local={isLocal}
+	class:is-cam-off={isCamOff}
+	class:is-screen={isScreen}
+>
 	{#if stream}
 		<VideoPlayer mediaStream={stream} {muted} {mirror} />
 	{/if}
@@ -20,9 +26,14 @@
 		</div>
 	{/if}
 	<span class="tile-label">
-		<span class="tile-name">{name}</span>
-		{#if tag}<span class="tile-tag">{tag}</span>{/if}
+		{#if isScreen}
+			{#if tag}<span class="tile-tag">{tag}</span>{/if}
+		{:else}
+			<span class="tile-name">{name}</span>
+			{#if tag}<span class="tile-tag">{tag}</span>{/if}
+		{/if}
 	</span>
+
 </div>
 
 <style>
@@ -51,6 +62,23 @@
 		object-fit: cover;
 		border: none;
 		border-radius: 0;
+	}
+
+	.tile.is-screen :global(video) {
+		object-fit: contain;
+		background: var(--bg-deep);
+	}
+
+	.tile.is-screen {
+		grid-column: span 2;
+		max-height: 55vh;
+	}
+
+	@media (max-width: 640px) {
+		.tile.is-screen {
+			grid-column: span 1;
+			max-height: 40vh;
+		}
 	}
 
 	.cam-off-cover {
@@ -88,4 +116,10 @@
 		color: var(--accent);
 		font-size: 0.65rem;
 	}
+
+	.tile.is-screen .tile-tag {
+		color: var(--text);
+		font-size: 0.75rem;
+	}
+
 </style>

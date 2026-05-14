@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { DtlsParameters, RtpCapabilities, RtpParameters } from "mediasoup/node/lib/types";
 import { worker, mediaCodecs, webRtcTransportOptions } from "../mediasoup.js";
-import { rooms, getAllProducersInRoom } from "../rooms.js";
+import { rooms, getAllProducersInRoom, findProducerInRoom } from "../rooms.js";
 import { logger } from "../logger.js";
 import { config } from "../config.js";
 import { validName, validRoomId } from "../validate.js";
@@ -223,6 +223,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
         transportId: string;
         kind: "audio" | "video";
         rtpParameters: RtpParameters;
+        appData?: Record<string, unknown>;
       },
       callback
     ) => {
@@ -233,6 +234,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
       const producer = await transport.transport.produce({
         kind: data.kind,
         rtpParameters: data.rtpParameters,
+        appData: data.appData ?? {},
       });
       user.producers.push(producer);
 
@@ -243,6 +245,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
         producerId: producer.id,
         name: user.name,
         userId,
+        appData: producer.appData,
       });
     }
   );
@@ -379,11 +382,13 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
 
       user.consumers.push(consumer);
 
+      const producer = findProducerInRoom(data.roomId, data.producerId);
       callback({
         id: consumer.id,
         producerId: data.producerId,
         kind: consumer.kind,
         rtpParameters: consumer.rtpParameters,
+        appData: (producer?.appData ?? {}) as Record<string, unknown>,
       });
     }
   );
