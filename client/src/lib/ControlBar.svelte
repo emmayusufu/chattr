@@ -2,9 +2,11 @@
 	export let isMuted: boolean;
 	export let isCamOff: boolean;
 	export let isSharing: boolean;
+	export let isRecording: boolean;
 	export let onToggleMute: () => void;
 	export let onToggleCam: () => void;
 	export let onToggleScreen: () => void;
+	export let onToggleRecord: () => void;
 	export let onLeave: () => void;
 </script>
 
@@ -117,6 +119,32 @@
 		>
 	</button>
 
+	<button
+		class="ctl"
+		class:ctl-rec={isRecording}
+		on:click={onToggleRecord}
+		title={isRecording ? 'Stop recording' : 'Record call'}
+		aria-label={isRecording ? 'Stop recording' : 'Record call'}
+	>
+		{#if isRecording}
+			<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" stroke="none">
+				<rect x="6" y="6" width="12" height="12" rx="2" />
+			</svg>
+		{:else}
+			<svg
+				viewBox="0 0 24 24"
+				width="20"
+				height="20"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3" fill="currentColor" /></svg
+			>
+		{/if}
+	</button>
+
 	<span class="ctl-divider" aria-hidden="true" />
 
 	<button class="ctl ctl-end" on:click={onLeave} title="Leave call" aria-label="Leave call">
@@ -197,6 +225,24 @@
 		background: var(--accent);
 		border-color: var(--accent);
 		opacity: 0.9;
+	}
+
+	.ctl-rec {
+		background: var(--danger);
+		color: var(--bg);
+		border-color: var(--danger);
+		animation: ctl-rec-pulse 1.6s infinite;
+	}
+
+	.ctl-rec:hover {
+		background: var(--danger);
+		opacity: 0.9;
+	}
+
+	@keyframes ctl-rec-pulse {
+		0% { box-shadow: 0 0 0 0 rgba(209, 100, 100, 0.55); }
+		70% { box-shadow: 0 0 0 12px transparent; }
+		100% { box-shadow: 0 0 0 0 transparent; }
 	}
 
 	.ctl-divider {

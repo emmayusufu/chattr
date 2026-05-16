@@ -4,6 +4,7 @@
 	import Sidebar from './Sidebar.svelte';
 	import ControlBar from './ControlBar.svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
+	import { CallRecorder } from './recorder.js';
 	import type { RoomClient } from './RoomClient';
 
 	export let room: RoomClient;
@@ -28,6 +29,37 @@
 
 	let chatMessage = '';
 	let chatOpen = false;
+	const recorder = new CallRecorder();
+	let isRecording = false;
+
+	async function toggleRecord() {
+		if (isRecording) {
+			isRecording = false;
+			try {
+				await recorder.stop();
+				showInviteToast('Recording saved to Downloads');
+			} catch (err) {
+				console.error('recorder stop failed:', err);
+				showInviteToast('Recording failed to save');
+			}
+		} else {
+			try {
+				await recorder.start({
+					includeMic: true,
+					onEndedByUser: () => {
+						isRecording = false;
+						showInviteToast('Recording saved to Downloads');
+					}
+				});
+				isRecording = true;
+			} catch (err) {
+				console.error('recorder start failed:', err);
+				if ((err as { name?: string })?.name !== 'NotAllowedError') {
+					showInviteToast('Could not start recording');
+				}
+			}
+		}
+	}
 
 	$: hasScreenShare =
 		$localScreenStream !== null ||
@@ -160,9 +192,11 @@
 		isMuted={$isMuted}
 		isCamOff={$isCamOff}
 		isSharing={$isSharing}
+		{isRecording}
 		onToggleMute={() => room.toggleMute()}
 		onToggleCam={() => room.toggleCam()}
 		onToggleScreen={() => room.toggleScreen()}
+		onToggleRecord={toggleRecord}
 		{onLeave}
 	/>
 
