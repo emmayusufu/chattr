@@ -1,8 +1,10 @@
 <script lang="ts">
 	import Chat from './Chat.svelte';
 	import People from './People.svelte';
-	import type { Participant, PendingJoiner, ChatMessage } from './RoomClient';
+	import Scratchpad from './Scratchpad.svelte';
+	import type { Participant, PendingJoiner, ChatMessage, RoomClient } from './RoomClient';
 
+	export let room: RoomClient;
 	export let messages: ChatMessage[];
 	export let chatMessage: string;
 	export let senderName: string;
@@ -20,7 +22,7 @@
 	export let open = true;
 	export let onClose: (() => void) | null = null;
 
-	let tab: 'chat' | 'people' = 'chat';
+	let tab: 'chat' | 'people' | 'notes' = 'chat';
 
 	$: pendingCount = pendingJoiners.length;
 	$: peopleCount = Object.keys(participants).length + 1;
@@ -39,6 +41,7 @@
 					{peopleCount}{pendingCount > 0 ? ` · ${pendingCount}` : ''}
 				</span>
 			</button>
+			<button class:active={tab === 'notes'} on:click={() => (tab = 'notes')}> Notes </button>
 		</nav>
 		{#if onClose}
 			<button class="close-btn" on:click={onClose} aria-label="Close panel">
@@ -59,7 +62,7 @@
 
 	{#if tab === 'chat'}
 		<Chat bind:chatMessage {messages} {senderName} {onSend} {encrypted} />
-	{:else}
+	{:else if tab === 'people'}
 		<People
 			{senderName}
 			{participants}
@@ -70,6 +73,8 @@
 			{onApproveAll}
 			{onCreateInvite}
 		/>
+	{:else}
+		<Scratchpad {room} />
 	{/if}
 </aside>
 

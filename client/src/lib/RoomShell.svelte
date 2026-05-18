@@ -163,6 +163,7 @@
 		</section>
 
 		<Sidebar
+			{room}
 			bind:chatMessage
 			messages={$messages}
 			{senderName}

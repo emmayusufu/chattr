@@ -4,6 +4,7 @@ import { Server, type Socket } from "socket.io";
 import { registerChatHandlers } from "./handlers/chat.js";
 import { registerSignalingHandlers } from "./handlers/signaling.js";
 import { registerDisconnectHandler } from "./handlers/disconnect.js";
+import { registerScratchpadHandlers } from "./handlers/scratchpad.js";
 import { logger } from "./logger.js";
 import { config } from "./config.js";
 import { checkRate, clearRate } from "./rate-limit.js";
@@ -30,6 +31,7 @@ io.on("connection", (socket: Socket) => {
   registerChatHandlers(io, socket);
   registerSignalingHandlers(io, socket);
   registerDisconnectHandler(io, socket);
+  registerScratchpadHandlers(io, socket);
 });
 
 httpServer.listen(config.port, () => {

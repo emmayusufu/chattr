@@ -10,6 +10,9 @@ const limits: Record<string, { capacity: number; refillPerSec: number }> = {
   "request-keyframe": { capacity: 30, refillPerSec: 15 },
   "create-invite": { capacity: 10, refillPerSec: 1 },
   "revoke-invite": { capacity: 20, refillPerSec: 5 },
+  "scratchpad-update": { capacity: 200, refillPerSec: 100 },
+  "scratchpad-awareness": { capacity: 300, refillPerSec: 150 },
+  "scratchpad-sync": { capacity: 10, refillPerSec: 2 },
 };
 
 const defaultLimit = { capacity: 30, refillPerSec: 20 };

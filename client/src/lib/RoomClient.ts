@@ -2,10 +2,17 @@ import { writable, type Writable } from 'svelte/store';
 import { io, type Socket } from 'socket.io-client';
 import * as mediasoupClient from 'mediasoup-client';
 import type { RtpCapabilities } from 'mediasoup-client/lib/RtpParameters';
+import * as Y from 'yjs';
+import {
+	encodeAwarenessUpdate,
+	applyAwarenessUpdate,
+	type Awareness
+} from 'y-protocols/awareness';
 
 import { emitWithTimeout, withRetry } from './socket-utils.js';
 import { describeMediaError } from './media-errors.js';
 import { ChatRatchet, deriveRootKey } from './chat-crypto.js';
+import { deriveScratchpadKey, encryptUpdate, decryptUpdate } from './scratchpad-crypto.js';
 
 export type Participant = {
 	name: string;
@@ -58,11 +65,12 @@ export class RoomClient {
 	readonly chatEncrypted: Writable<boolean> = writable(false);
 
 	private readonly roomId: string;
-	private readonly name: string;
+	readonly name: string;
 	private readonly serverUrl: string;
 	private readonly chatSecret?: string;
 	private readonly inviteToken?: string;
 	private chatRatchet: ChatRatchet | null = null;
+	private scratchpadKey: CryptoKey | null = null;
 
 	private socket: Socket | null = null;
 	private device: mediasoupClient.Device | null = null;
@@ -103,6 +111,11 @@ export class RoomClient {
 				this.chatEncrypted.set(true);
 			} catch (err) {
 				console.error('failed to derive chat key:', err);
+			}
+			try {
+				this.scratchpadKey = await deriveScratchpadKey(this.chatSecret);
+			} catch (err) {
+				console.error('failed to derive scratchpad key:', err);
 			}
 		}
 
@@ -416,7 +429,98 @@ export class RoomClient {
 		}
 	}
 
+	async attachScratchpad(doc: Y.Doc, awareness: Awareness): Promise<() => void> {
+		const socket = this.socket;
+		if (!socket) return () => {};
+		const roomId = this.roomId;
+		const key = this.scratchpadKey;
 
+		const toBytes = (raw: Uint8Array | ArrayBuffer): Uint8Array =>
+			raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+
+		const sendBytes = async (event: string, plain: Uint8Array) => {
+			const payload = key ? await encryptUpdate(key, plain) : plain;
+			socket.emit(event, { roomId, update: payload });
+		};
+
+		const applyIncoming = async (
+			raw: Uint8Array | ArrayBuffer,
+			apply: (u: Uint8Array) => void
+		) => {
+			const blob = toBytes(raw);
+			if (blob.byteLength === 0) return;
+			try {
+				const plain = key ? await decryptUpdate(key, blob) : blob;
+				apply(plain);
+			} catch (err) {
+				console.warn('scratchpad: decrypt or apply failed', err);
+			}
+		};
+
+		const onLocalUpdate = (update: Uint8Array, origin: unknown) => {
+			if (origin === 'remote') return;
+			void sendBytes('scratchpad-update', update);
+		};
+		doc.on('update', onLocalUpdate);
+
+		const onRemoteUpdate = (data: { update: Uint8Array | ArrayBuffer }) => {
+			if (!data?.update) return;
+			void applyIncoming(data.update, (plain) => Y.applyUpdate(doc, plain, 'remote'));
+		};
+		socket.on('scratchpad-update', onRemoteUpdate);
+
+		const onLocalAwareness = ({
+			added,
+			updated,
+			removed
+		}: {
+			added: number[];
+			updated: number[];
+			removed: number[];
+		}) => {
+			const changed = added.concat(updated, removed);
+			if (changed.length === 0) return;
+			const update = encodeAwarenessUpdate(awareness, changed);
+			void sendBytes('scratchpad-awareness', update);
+		};
+		awareness.on('update', onLocalAwareness);
+
+		const onRemoteAwareness = (data: { update: Uint8Array | ArrayBuffer }) => {
+			if (!data?.update) return;
+			void applyIncoming(data.update, (plain) =>
+				applyAwarenessUpdate(awareness, plain, 'remote')
+			);
+		};
+		socket.on('scratchpad-awareness', onRemoteAwareness);
+
+		await new Promise<void>((resolve) => {
+			socket
+				.timeout(5000)
+				.emit(
+					'scratchpad-sync',
+					{ roomId },
+					async (
+						err: Error | null,
+						response?: { updates?: Array<Uint8Array | ArrayBuffer> }
+					) => {
+						const updates = response?.updates;
+						if (!err && Array.isArray(updates)) {
+							for (const raw of updates) {
+								await applyIncoming(raw, (plain) => Y.applyUpdate(doc, plain, 'remote'));
+							}
+						}
+						resolve();
+					}
+				);
+		});
+
+		return () => {
+			doc.off('update', onLocalUpdate);
+			awareness.off('update', onLocalAwareness);
+			socket.off('scratchpad-update', onRemoteUpdate);
+			socket.off('scratchpad-awareness', onRemoteAwareness);
+		};
+	}
 
 	async sendMessage(text: string): Promise<void> {
 		const trimmed = text.trim();
