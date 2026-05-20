@@ -7,6 +7,7 @@
 	export let onToggleCam: () => void;
 	export let onToggleScreen: () => void;
 	export let onToggleRecord: () => void;
+	export let onAskAi: () => void;
 	export let onLeave: () => void;
 </script>
 
@@ -143,6 +144,22 @@
 				><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3" fill="currentColor" /></svg
 			>
 		{/if}
+	</button>
+
+	<button class="ctl" on:click={onAskAi} title="Ask AI" aria-label="Ask AI">
+		<svg
+			viewBox="0 0 24 24"
+			width="20"
+			height="20"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			><path d="M12 2l2 5 5 2-5 2-2 5-2-5-5-2 5-2 2-5z" /><path
+				d="M20 16l1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2z"
+			/></svg
+		>
 	</button>
 
 	<span class="ctl-divider" aria-hidden="true" />

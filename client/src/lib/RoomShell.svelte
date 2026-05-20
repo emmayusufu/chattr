@@ -3,6 +3,7 @@
 	import Tile from './Tile.svelte';
 	import Sidebar from './Sidebar.svelte';
 	import ControlBar from './ControlBar.svelte';
+	import AskAi from './AskAi.svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
 	import { CallRecorder } from './recorder.js';
 	import type { RoomClient } from './RoomClient';
@@ -29,6 +30,7 @@
 
 	let chatMessage = '';
 	let chatOpen = false;
+	let askAiOpen = false;
 	const recorder = new CallRecorder();
 	let isRecording = false;
 
@@ -198,8 +200,13 @@
 		onToggleCam={() => room.toggleCam()}
 		onToggleScreen={() => room.toggleScreen()}
 		onToggleRecord={toggleRecord}
+		onAskAi={() => (askAiOpen = true)}
 		{onLeave}
 	/>
+
+	{#if askAiOpen}
+		<AskAi {room} onClose={() => (askAiOpen = false)} />
+	{/if}
 
 	{#if inviteToast}
 		<div class="invite-toast" role="status">{inviteToast}</div>

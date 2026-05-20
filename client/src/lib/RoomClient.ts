@@ -522,6 +522,17 @@ export class RoomClient {
 		};
 	}
 
+	sendAiMessage(text: string): void {
+		if (!this.socket) return;
+		const trimmed = text.trim();
+		if (!trimmed) return;
+		this.socket.emit('send-chat-message', {
+			roomId: this.roomId,
+			message: trimmed,
+			sender: 'AI'
+		});
+	}
+
 	async sendMessage(text: string): Promise<void> {
 		const trimmed = text.trim();
 		if (!trimmed || !this.socket) return;
