@@ -27,7 +27,11 @@
 	let nameInput = '';
 	let isSignedIn = false;
 
-	const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
+	const SERVER_URL =
+		import.meta.env.VITE_SERVER_URL ||
+		(typeof window !== 'undefined'
+			? `${window.location.protocol}//${window.location.hostname}:3500`
+			: 'http://localhost:3500');
 
 	onMount(() => {
 		const unsubscribe = onAuthStateChanged(auth, (user) => {

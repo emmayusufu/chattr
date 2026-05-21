@@ -13,7 +13,7 @@
 	},
 	"scripts": {
 		"setup": "npm install && npm --prefix server install && npm --prefix client install",
-		"dev": "concurrently -n server,client -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+		"dev": "concurrently -n server,client -c blue,green \"PORT=3500 npm --prefix server run dev\" \"npm --prefix client run dev -- --host\"",
 		"build": "npm --prefix server run build && npm --prefix client run build",
 		"test": "npm --prefix server test && npm --prefix client run test:unit",
 		"lint": "npm --prefix server run lint && npm --prefix client run lint"
