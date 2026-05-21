@@ -5,7 +5,7 @@
 	import ControlBar from './ControlBar.svelte';
 	import AskAi from './AskAi.svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
-	import { CallRecorder } from './recorder.js';
+	import { CallRecorder, type RecordVideoSource } from './recorder.js';
 	import type { RoomClient } from './RoomClient';
 
 	export let room: RoomClient;
@@ -34,6 +34,29 @@
 	const recorder = new CallRecorder();
 	let isRecording = false;
 
+	$: videoSources = (() => {
+		const sources: RecordVideoSource[] = [];
+		if ($localStream) sources.push({ stream: $localStream, label: senderName });
+		if ($localScreenStream)
+			sources.push({
+				stream: $localScreenStream,
+				isScreen: true,
+				label: `${senderName}'s screen`
+			});
+		for (const p of Object.values($participants)) {
+			if (p.videoStream) sources.push({ stream: p.videoStream, label: p.name });
+			if (p.screenStream)
+				sources.push({ stream: p.screenStream, isScreen: true, label: `${p.name}'s screen` });
+		}
+		return sources;
+	})();
+
+	$: audioStreams = Object.values($participants)
+		.map((p) => p.audioStream)
+		.filter((s): s is MediaStream => s !== null);
+
+	$: if (isRecording) recorder.updateSources(videoSources);
+
 	async function toggleRecord() {
 		if (isRecording) {
 			isRecording = false;
@@ -47,11 +70,9 @@
 		} else {
 			try {
 				await recorder.start({
-					includeMic: true,
-					onEndedByUser: () => {
-						isRecording = false;
-						showInviteToast('Recording saved to Downloads');
-					}
+					videoSources,
+					audioStreams,
+					includeMic: true
 				});
 				isRecording = true;
 			} catch (err) {
