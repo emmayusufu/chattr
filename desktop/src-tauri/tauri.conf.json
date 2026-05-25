@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "build": {
     "frontendDist": "../client/build",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:3030",
     "beforeDevCommand": "npm --prefix ../client run dev",
     "beforeBuildCommand": "npm --prefix ../client run build"
   },
@@ -27,9 +27,7 @@
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/128x128@2x.png"
     ]
   }
 }
