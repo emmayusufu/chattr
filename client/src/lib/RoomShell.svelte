@@ -218,7 +218,7 @@
 		onToggleScreen={() => room.toggleScreen()}
 		onOpenTab={openTab}
 		{onLeave}
-		canRequestControl={hasScreenShare && !$rcControlling && isTauri()}
+		canRequestControl={hasScreenShare && !$rcControlling}
 		isControlling={$rcControlling !== null}
 		onRequestControl={() => {
 			const pid = Object.entries($participants).find(([, p]) => p.screenStream)?.[0];
