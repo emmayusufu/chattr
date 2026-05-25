@@ -71,6 +71,9 @@ export class RoomClient {
 	readonly aiPending: Writable<boolean> = writable(false);
 	readonly transcript: Writable<TranscriptSegment[]> = writable([]);
 	readonly isTranscribing: Writable<boolean> = writable(false);
+	readonly rcRequester: Writable<string | null> = writable(null);
+	readonly rcControlling: Writable<string | null> = writable(null);
+	readonly rcControlledBy: Writable<string | null> = writable(null);
 
 	private readonly roomId: string;
 	readonly name: string;
@@ -570,6 +573,34 @@ export class RoomClient {
 		this.isTranscribing.set(false);
 	}
 
+	requestRemoteControl(targetUserId: string): void {
+		this.socket?.emit('rc-request', { roomId: this.roomId, targetUserId });
+	}
+
+	approveRemoteControl(fromUserId: string): void {
+		this.socket?.emit('rc-approve', { roomId: this.roomId, fromUserId });
+		this.rcControlledBy.set(fromUserId);
+	}
+
+	denyRemoteControl(fromUserId: string): void {
+		this.socket?.emit('rc-deny', { roomId: this.roomId, fromUserId });
+		this.rcRequester.set(null);
+	}
+
+	stopRemoteControl(): void {
+		this.socket?.emit('rc-stop', { roomId: this.roomId });
+		this.rcControlling.set(null);
+		this.rcControlledBy.set(null);
+	}
+
+	sendMouseEvent(targetUserId: string, ev: { x: number; y: number; button: string; action: string }): void {
+		this.socket?.emit('rc-mouse', { roomId: this.roomId, targetUserId, ...ev });
+	}
+
+	sendKeyEvent(targetUserId: string, ev: { key: string; action: string }): void {
+		this.socket?.emit('rc-key', { roomId: this.roomId, targetUserId, ...ev });
+	}
+
 	private async stopShare(): Promise<void> {
 		if (this.screenProducer) {
 			const id = this.screenProducer.id;
@@ -771,6 +802,45 @@ export class RoomClient {
 
 		this.socket.on('stop-transcription', () => {
 			this.stopRecognition();
+		});
+
+		this.socket.on('rc-request', ({ fromUserId, targetUserId }: { fromUserId: string; targetUserId: string }) => {
+			if (targetUserId === this.socket?.id) {
+				this.rcRequester.set(fromUserId);
+			}
+		});
+
+		this.socket.on('rc-approve', ({ targetUserId, fromUserId }: { targetUserId: string; fromUserId: string }) => {
+			if (fromUserId === this.socket?.id) {
+				this.rcControlling.set(targetUserId);
+			}
+		});
+
+		this.socket.on('rc-deny', ({ fromUserId }: { fromUserId: string }) => {
+			if (fromUserId === this.socket?.id) {
+				this.rcControlling.set(null);
+			}
+		});
+
+		this.socket.on('rc-stop', () => {
+			this.rcControlling.set(null);
+			this.rcControlledBy.set(null);
+		});
+
+		this.socket.on('rc-mouse', async (data: { targetUserId?: string; x?: number; y?: number; button?: string; action?: string }) => {
+			if (data.targetUserId !== this.socket?.id) return;
+			const { injectMouse } = await import('./remote-control.js');
+			if (typeof data.x === 'number' && typeof data.y === 'number' && data.button && data.action) {
+				injectMouse(data.x, data.y, data.button, data.action).catch(console.warn);
+			}
+		});
+
+		this.socket.on('rc-key', async (data: { targetUserId?: string; key?: string; action?: string }) => {
+			if (data.targetUserId !== this.socket?.id) return;
+			const { injectKey } = await import('./remote-control.js');
+			if (data.key && data.action) {
+				injectKey(data.key, data.action).catch(console.warn);
+			}
 		});
 
 		this.socket.on('disconnect', () => {
