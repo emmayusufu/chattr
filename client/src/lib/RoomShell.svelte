@@ -2,8 +2,10 @@
 	import Tile from './Tile.svelte';
 	import Sidebar from './Sidebar.svelte';
 	import ControlBar from './ControlBar.svelte';
+	import RemoteOverlay from './RemoteOverlay.svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
 	import type { RoomClient } from './RoomClient';
+	import { isTauri } from './remote-control';
 
 	export let room: RoomClient;
 	export let roomId: string;
@@ -26,7 +28,10 @@
 		aiMessages,
 		aiPending,
 		transcript,
-		isTranscribing
+		isTranscribing,
+		rcRequester,
+		rcControlling,
+		rcControlledBy
 	} = room;
 
 	let chatMessage = '';
@@ -116,12 +121,17 @@
 					{/if}
 					{#each Object.entries($participants) as [pid, p] (pid)}
 						{#if p.screenStream}
-							<Tile
-								stream={p.screenStream}
-								name={p.name}
-								isScreen={true}
-								tag={`${p.name}'s screen`}
-							/>
+							<div class="screen-tile-wrap">
+								<Tile
+									stream={p.screenStream}
+									name={p.name}
+									isScreen={true}
+									tag={`${p.name}'s screen`}
+								/>
+								{#if $rcControlling === pid}
+									<RemoteOverlay {room} targetUserId={pid} />
+								{/if}
+							</div>
 						{/if}
 					{/each}
 				</div>
@@ -208,6 +218,13 @@
 		onToggleScreen={() => room.toggleScreen()}
 		onOpenTab={openTab}
 		{onLeave}
+		canRequestControl={hasScreenShare && !$rcControlling && isTauri()}
+		isControlling={$rcControlling !== null}
+		onRequestControl={() => {
+			const pid = Object.entries($participants).find(([, p]) => p.screenStream)?.[0];
+			if (pid) room.requestRemoteControl(pid);
+		}}
+		onStopControl={() => room.stopRemoteControl()}
 	/>
 
 	{#if inviteToast}
@@ -223,6 +240,15 @@
 		<div class="reconnect-banner" role="status" aria-live="polite">
 			<span class="reconnect-dot" />
 			<span>Reconnecting…</span>
+		</div>
+	{/if}
+
+	{#if $rcRequester}
+		{@const requester = $rcRequester}
+		<div class="rc-prompt">
+			<span>Someone wants to control your screen</span>
+			<button class="rc-approve" on:click={() => room.approveRemoteControl(requester)}>Allow</button>
+			<button class="rc-deny" on:click={() => room.denyRemoteControl(requester)}>Deny</button>
 		</div>
 	{/if}
 </div>
@@ -455,6 +481,50 @@
 
 	.banner-action:hover {
 		opacity: 0.9;
+	}
+
+	.rc-prompt {
+		position: fixed;
+		top: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.6rem 1rem;
+		background: var(--surface);
+		border: 1px solid var(--accent);
+		border-radius: 12px;
+		font-size: 0.85rem;
+		color: var(--text);
+		box-shadow: 0 8px 24px -8px var(--accent-glow);
+		z-index: 40;
+	}
+
+	.rc-approve {
+		padding: 0.3rem 0.7rem;
+		background: var(--accent);
+		color: var(--bg);
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+
+	.rc-deny {
+		padding: 0.3rem 0.7rem;
+		background: transparent;
+		color: var(--text-muted);
+		border: 1px solid var(--border-strong);
+		border-radius: 6px;
+		font-weight: 500;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+
+	.screen-tile-wrap {
+		position: relative;
 	}
 
 	@media (max-width: 640px) {
