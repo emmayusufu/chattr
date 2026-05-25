@@ -15,6 +15,8 @@
 	let error: string | null = null;
 	let joinCode = '';
 	let guestMode = false;
+	let guestName = '';
+	let isTauriApp = false;
 
 	const signInWithGoogle = async () => {
 		const provider = new GoogleAuthProvider();
@@ -52,7 +54,16 @@
 		goto(`/${value}`);
 	};
 
+	function enterAsGuest() {
+		if (!guestName.trim()) return;
+		sessionStorage.setItem('chattr-guest-name', guestName.trim());
+		guestMode = true;
+		isLoggedIn = true;
+		loading = false;
+	}
+
 	onMount(() => {
+		isTauriApp = !!window.__TAURI__;
 		onAuthStateChanged(auth, (userData) => {
 			try {
 				isLoggedIn = !!userData;
@@ -84,7 +95,7 @@
 					<span class="dot" />
 					<span>on air</span>
 				</span>
-				<span class="user-name">{user.displayName}</span>
+				<span class="user-name">{guestMode ? guestName : user.displayName}</span>
 				<button class="ghost" on:click={() => auth.signOut()}>sign out</button>
 			</div>
 		</header>
@@ -137,10 +148,24 @@
 				A quiet place for loud conversations.<br />
 				Sign in to start your first broadcast.
 			</p>
-			<button class="cta cta-light" on:click={signInWithGoogle}>
-				<span class="cta-label">Continue with Google</span>
-				<span class="cta-arrow">↗</span>
-			</button>
+			{#if isTauriApp}
+				<form class="guest-form" on:submit|preventDefault={enterAsGuest}>
+					<input
+						type="text"
+						placeholder="Your name"
+						bind:value={guestName}
+						autocomplete="off"
+					/>
+					<button type="submit" class="cta cta-light" disabled={!guestName.trim()}>
+						<span class="cta-label">Join</span>
+					</button>
+				</form>
+			{:else}
+				<button class="cta cta-light" on:click={signInWithGoogle}>
+					<span class="cta-label">Continue with Google</span>
+					<span class="cta-arrow">↗</span>
+				</button>
+			{/if}
 			<div class="signin-footer">
 				<span class="sig">— studio session</span>
 			</div>
@@ -443,6 +468,27 @@
 	.cta-light:hover {
 		background: var(--accent);
 		border-color: var(--accent);
+	}
+
+	.guest-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.guest-form input {
+		padding: 0.75rem 1rem;
+		background: var(--surface);
+		border: 1px solid var(--border-strong);
+		border-radius: 4px;
+		color: var(--text);
+		font-size: 0.9rem;
+		font-family: inherit;
+		outline: none;
+	}
+
+	.guest-form input::placeholder {
+		color: var(--text-faint);
 	}
 
 	.signin-footer {
