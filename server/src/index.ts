@@ -11,7 +11,16 @@ import { checkRate, clearRate } from "./rate-limit.js";
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: config.clientOrigin },
+  cors: {
+    origin: (origin, callback) => {
+      const allowed = config.clientOrigin;
+      if (!origin || allowed === "*" || origin === allowed || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
+  },
 });
 
 io.on("connection", (socket: Socket) => {
