@@ -1,7 +1,10 @@
 node_modules
 server/dist
+server/data
+client/build
 client/.vscode
 client/.svelte-kit
 client/.env
 server/.env
 .DS_Store
+*.log
