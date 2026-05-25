@@ -1,0 +1,35 @@
+{
+  "productName": "chattr",
+  "identifier": "com.chattr.app",
+  "version": "0.1.0",
+  "build": {
+    "frontendDist": "../client/build",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm --prefix ../client run dev",
+    "beforeBuildCommand": "npm --prefix ../client run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "chattr",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
