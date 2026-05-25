@@ -1,13 +1,13 @@
 mod input;
 
 #[tauri::command]
-fn inject_mouse(x: i32, y: i32, button: u8, pressed: bool) -> Result<(), String> {
-    input::mouse_event(x, y, button, pressed).map_err(|e| e.to_string())
+fn inject_mouse(x: f64, y: f64, button: &str, action: &str) -> Result<(), String> {
+    input::mouse_event(x, y, button, action).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn inject_key(keycode: u32, pressed: bool) -> Result<(), String> {
-    input::key_event(keycode, pressed).map_err(|e| e.to_string())
+fn inject_key(key: &str, action: &str) -> Result<(), String> {
+    input::key_event(key, action).map_err(|e| e.to_string())
 }
 
 pub fn run() {
