@@ -74,7 +74,7 @@
 	};
 
 	onMount(() => {
-		isTauriApp = !!(window.__TAURI__ || (window as any).__TAURI_INTERNALS__);
+		isTauriApp = !!((window as any).__TAURI__ || (window as any).__TAURI_INTERNALS__);
 		onAuthStateChanged(auth, (userData) => {
 			try {
 				isLoggedIn = !!userData;
@@ -83,7 +83,6 @@
 				}
 			} catch (err) {
 				console.error('Error during auth state change:', err);
-				guestMode = true;
 			} finally {
 				loading = false;
 			}
