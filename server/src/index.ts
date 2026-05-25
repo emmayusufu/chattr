@@ -58,41 +58,6 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
-  socket.on("rc-request", (data: { roomId?: string; targetUserId?: string }) => {
-    if (typeof data?.roomId === "string" && typeof data?.targetUserId === "string") {
-      socket.to(data.roomId).emit("rc-request", { fromUserId: socket.id, targetUserId: data.targetUserId });
-    }
-  });
-
-  socket.on("rc-approve", (data: { roomId?: string; fromUserId?: string }) => {
-    if (typeof data?.roomId === "string" && typeof data?.fromUserId === "string") {
-      socket.to(data.roomId).emit("rc-approve", { targetUserId: socket.id, fromUserId: data.fromUserId });
-    }
-  });
-
-  socket.on("rc-deny", (data: { roomId?: string; fromUserId?: string }) => {
-    if (typeof data?.roomId === "string" && typeof data?.fromUserId === "string") {
-      socket.to(data.roomId).emit("rc-deny", { targetUserId: socket.id, fromUserId: data.fromUserId });
-    }
-  });
-
-  socket.on("rc-stop", (data: { roomId?: string }) => {
-    if (typeof data?.roomId === "string") {
-      socket.to(data.roomId).emit("rc-stop", { userId: socket.id });
-    }
-  });
-
-  socket.on("rc-mouse", (data: { roomId?: string; targetUserId?: string; x?: number; y?: number; button?: string; action?: string }) => {
-    if (typeof data?.roomId === "string" && typeof data?.targetUserId === "string") {
-      socket.to(data.roomId).emit("rc-mouse", data);
-    }
-  });
-
-  socket.on("rc-key", (data: { roomId?: string; targetUserId?: string; key?: string; action?: string }) => {
-    if (typeof data?.roomId === "string" && typeof data?.targetUserId === "string") {
-      socket.to(data.roomId).emit("rc-key", data);
-    }
-  });
 });
 
 httpServer.listen(config.port, () => {
