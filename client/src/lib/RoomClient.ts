@@ -196,7 +196,11 @@ export class RoomClient {
 		}
 		this.participants.set(initial);
 
-		this.device = new mediasoupClient.Device();
+		try {
+			this.device = new mediasoupClient.Device();
+		} catch {
+			this.device = new mediasoupClient.Device({ handlerName: 'Safari12' });
+		}
 		await this.device.load({ routerRtpCapabilities: ack.routerRtpCapabilities });
 
 		this.videoSendTransport = this.device.createSendTransport({

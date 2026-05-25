@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for chattr desktop",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "google-auth:default"
+  ]
+}

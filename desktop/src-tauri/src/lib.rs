@@ -12,6 +12,7 @@ fn inject_key(key: &str, action: &str) -> Result<(), String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_google_auth::init())
         .invoke_handler(tauri::generate_handler![inject_mouse, inject_key])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -35,7 +35,7 @@ declare global {
 }
 
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && !!window.__TAURI__;
+  return typeof window !== 'undefined' && !!(window.__TAURI__ || (window as any).__TAURI_INTERNALS__);
 }
 
 export async function injectMouse(x: number, y: number, button: string, action: string): Promise<void> {
