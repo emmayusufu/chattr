@@ -115,7 +115,7 @@ export class RoomClient {
 	async start(): Promise<void> {
 		this.mediaError.set(null);
 
-		if (this.chatSecret) {
+		if (this.chatSecret && globalThis.crypto?.subtle) {
 			try {
 				const rootKey = await deriveRootKey(this.chatSecret);
 				this.chatRatchet = new ChatRatchet(rootKey, this.name);

@@ -30,7 +30,20 @@
 	const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
 
 	onMount(() => {
+		const guest = sessionStorage.getItem('chattr-guest-name');
+		if (guest) {
+			senderName = guest;
+			startRoom();
+			phase = 'in-room';
+			return;
+		}
+
+		const timeout = setTimeout(() => {
+			if (phase === 'loading') phase = 'lobby';
+		}, 3000);
+
 		const unsubscribe = onAuthStateChanged(auth, (user) => {
+			clearTimeout(timeout);
 			if (user?.displayName) {
 				isSignedIn = true;
 				if (phase === 'loading') {
@@ -43,7 +56,7 @@
 				if (phase === 'loading') phase = 'lobby';
 			}
 		});
-		return unsubscribe;
+		return () => { clearTimeout(timeout); unsubscribe(); };
 	});
 
 	onDestroy(() => {
