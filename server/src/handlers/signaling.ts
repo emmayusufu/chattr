@@ -15,12 +15,13 @@ async function admitUser(
 ): Promise<{
   routerRtpCapabilities: RtpCapabilities;
   transportOptions: any;
-  participants: { userId: string; name: string }[];
+  participants: { userId: string; name: string; muted: boolean }[];
 }> {
   const room = rooms[roomId];
   const existingParticipants = Object.entries(room.users).map(([uid, u]) => ({
     userId: uid,
     name: u.name,
+    muted: u.muted,
   }));
   const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
 
@@ -29,6 +30,7 @@ async function admitUser(
     producers: [],
     consumers: [],
     transports: [{ transport, sender: true }],
+    muted: false,
   };
 
   socket.join(roomId);

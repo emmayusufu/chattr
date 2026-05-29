@@ -11,6 +11,7 @@ const limits: Record<string, { capacity: number; refillPerSec: number }> = {
   "create-invite": { capacity: 10, refillPerSec: 1 },
   "revoke-invite": { capacity: 20, refillPerSec: 5 },
   "transcript-segment": { capacity: 30, refillPerSec: 10 },
+  "mute-state": { capacity: 10, refillPerSec: 3 },
 };
 
 const defaultLimit = { capacity: 30, refillPerSec: 20 };

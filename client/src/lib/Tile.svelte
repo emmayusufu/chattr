@@ -9,6 +9,7 @@
 	export let isLocal = false;
 	export let isCamOff = false;
 	export let isScreen = false;
+	export let micOff = false;
 	export let tag: string | null = null;
 
 	$: initials = name
@@ -51,6 +52,25 @@
 >
 	{#if stream}
 		<VideoPlayer mediaStream={stream} {muted} {mirror} />
+	{/if}
+	{#if micOff && !isScreen}
+		<span class="mic-badge" title="Muted" aria-label="Muted">
+			<svg
+				viewBox="0 0 24 24"
+				width="13"
+				height="13"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				><line x1="2" y1="2" x2="22" y2="22" /><path
+					d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"
+				/><path d="M5 10v2a7 7 0 0 0 12 5" /><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" /><path
+					d="M9 9v3a3 3 0 0 0 5.12 2.12"
+				/><line x1="12" y1="19" x2="12" y2="22" /></svg
+			>
+		</span>
 	{/if}
 	{#if isCamOff}
 		<div class="cam-off-cover">
@@ -130,6 +150,22 @@
 		font-size: 0.8rem;
 		color: var(--text-muted);
 		font-weight: 500;
+	}
+
+	.mic-badge {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		width: 24px;
+		height: 24px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(10, 8, 7, 0.7);
+		backdrop-filter: blur(8px);
+		border-radius: 50%;
+		color: var(--danger);
+		z-index: 2;
 	}
 
 	.tile-label {

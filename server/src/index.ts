@@ -4,6 +4,7 @@ import { Server, type Socket } from "socket.io";
 import { registerChatHandlers } from "./handlers/chat.js";
 import { registerSignalingHandlers } from "./handlers/signaling.js";
 import { registerDisconnectHandler } from "./handlers/disconnect.js";
+import { rooms } from "./rooms.js";
 import { logger } from "./logger.js";
 import { config } from "./config.js";
 import { checkRate, clearRate } from "./rate-limit.js";
@@ -56,6 +57,13 @@ io.on("connection", (socket: Socket) => {
     if (typeof data?.roomId === "string") {
       socket.to(data.roomId).emit("stop-transcription");
     }
+  });
+
+  socket.on("mute-state", (data: { roomId?: string; muted?: boolean }) => {
+    if (typeof data?.roomId !== "string" || typeof data?.muted !== "boolean") return;
+    const user = rooms[data.roomId]?.users[socket.id];
+    if (user) user.muted = data.muted;
+    socket.to(data.roomId).emit("mute-state", { userId: socket.id, muted: data.muted });
   });
 
 });

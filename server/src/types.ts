@@ -16,6 +16,7 @@ export type User = {
   producers: Producer[];
   consumers: Consumer[];
   transports: UserTransport[];
+  muted: boolean;
 };
 
 export type PendingJoiner = {

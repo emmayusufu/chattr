@@ -23,6 +23,7 @@ export type Participant = {
 	videoStream: MediaStream | null;
 	audioStream: MediaStream | null;
 	screenStream: MediaStream | null;
+	muted: boolean;
 };
 
 export type ChatMessage = { sender: string; message: string };
@@ -32,7 +33,7 @@ export type JoinStatus = 'connecting' | 'pending' | 'admitted' | 'denied' | 'hos
 type AdmissionAck = {
 	routerRtpCapabilities: RtpCapabilities;
 	transportOptions: any;
-	participants: { userId: string; name: string }[];
+	participants: { userId: string; name: string; muted?: boolean }[];
 	isHost?: boolean;
 };
 
@@ -189,7 +190,13 @@ export class RoomClient {
 	private async completeAdmission(ack: AdmissionAck): Promise<void> {
 		const initial: Record<string, Participant> = {};
 		for (const p of ack.participants ?? []) {
-			initial[p.userId] = { name: p.name, videoStream: null, audioStream: null, screenStream: null };
+			initial[p.userId] = {
+				name: p.name,
+				videoStream: null,
+				audioStream: null,
+				screenStream: null,
+				muted: !!p.muted
+			};
 		}
 		this.participants.set(initial);
 
@@ -239,8 +246,13 @@ export class RoomClient {
 
 		this.attachRoomEventHandlers();
 		this.socket?.emit('get-chat-history', this.roomId);
+		this.emitMuteState();
 		this.hasJoined = true;
 		this.joinStatus.set('admitted');
+	}
+
+	private emitMuteState(): void {
+		this.socket?.emit('mute-state', { roomId: this.roomId, muted: this.snapshot(this.isMuted) });
 	}
 
 	private attachWaitingHandlers(): void {
@@ -342,6 +354,7 @@ export class RoomClient {
 					});
 				}
 				this.isMuted.set(false);
+				this.emitMuteState();
 			} catch (err) {
 				console.error('Failed to unmute:', err);
 			}
@@ -355,6 +368,7 @@ export class RoomClient {
 				await this.audioProducer.replaceTrack({ track: null });
 			}
 			this.isMuted.set(true);
+			this.emitMuteState();
 		}
 	}
 
@@ -777,6 +791,13 @@ export class RoomClient {
 			this.stopRecognition();
 		});
 
+		this.socket.on('mute-state', ({ userId, muted }: { userId: string; muted: boolean }) => {
+			this.participants.update((p) => {
+				if (!p[userId]) return p;
+				return { ...p, [userId]: { ...p[userId], muted } };
+			});
+		});
+
 		this.socket.on('disconnect', () => {
 			if (!this.hasJoined) return;
 			this.reconnecting.set(true);
@@ -803,7 +824,7 @@ export class RoomClient {
 				emitWithTimeout<{
 					routerRtpCapabilities?: RtpCapabilities;
 					transportOptions?: any;
-					participants?: { userId: string; name: string }[];
+					participants?: { userId: string; name: string; muted?: boolean }[];
 					isHost?: boolean;
 					status?: 'pending';
 					error?: string;
@@ -831,12 +852,18 @@ export class RoomClient {
 
 			const { transportOptions, participants: existing } = rejoinAck as {
 				transportOptions: any;
-				participants: { userId: string; name: string }[];
+				participants: { userId: string; name: string; muted?: boolean }[];
 			};
 
 			const next: Record<string, Participant> = {};
 			for (const p of existing) {
-				next[p.userId] = { name: p.name, videoStream: null, audioStream: null, screenStream: null };
+				next[p.userId] = {
+					name: p.name,
+					videoStream: null,
+					audioStream: null,
+					screenStream: null,
+					muted: !!p.muted
+				};
 			}
 			this.participants.set(next);
 
@@ -887,6 +914,7 @@ export class RoomClient {
 			}
 
 			this.socket?.emit('get-chat-history', this.roomId);
+			this.emitMuteState();
 			this.reconnecting.set(false);
 		} catch (err) {
 			console.error('Reconnect failed:', err);
@@ -972,7 +1000,10 @@ export class RoomClient {
 	private upsertParticipant(userId: string, name: string): void {
 		this.participants.update((p) => {
 			if (p[userId]) return p;
-			return { ...p, [userId]: { name, videoStream: null, audioStream: null, screenStream: null } };
+			return {
+				...p,
+				[userId]: { name, videoStream: null, audioStream: null, screenStream: null, muted: false }
+			};
 		});
 	}
 
