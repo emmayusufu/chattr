@@ -19,6 +19,7 @@
 		const text = draft.trim();
 		if (!text) return;
 		draft = '';
+		autoResize();
 		onSendAi(text);
 	}
 
@@ -35,8 +36,6 @@
 		textareaEl.style.height = 'auto';
 		textareaEl.style.height = Math.min(textareaEl.scrollHeight, 120) + 'px';
 	}
-
-	$: if (draft !== undefined) autoResize();
 </script>
 
 <div class="ai-pane">
@@ -66,6 +65,7 @@
 			placeholder="Ask Gemini..."
 			rows="1"
 			disabled={aiPending}
+			on:input={autoResize}
 			on:keydown={handleKeydown}
 		/>
 		<button type="submit" class="send-btn" disabled={!draft.trim() || aiPending} aria-label="Send">
