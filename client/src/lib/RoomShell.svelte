@@ -46,17 +46,21 @@
 		$localScreenStream !== null ||
 		Object.values($participants).some((p) => p.screenStream !== null);
 
+	$: tileCount = ($localStream ? 1 : 0) + Object.keys($participants).length;
+	$: gridCols = Math.max(1, Math.ceil(Math.sqrt(tileCount)));
+	$: gridRows = Math.max(1, Math.ceil(tileCount / gridCols));
+
 	const MAX_VISIBLE_THUMBS = 5;
 
-	type ThumbEntry = { id: string; stream: MediaStream | null; name: string; isLocal: boolean; isCamOff: boolean; mirror: boolean; tag: string | null };
+	type ThumbEntry = { id: string; stream: MediaStream | null; name: string; isLocal: boolean; isCamOff: boolean; mirror: boolean; micOff: boolean; tag: string | null };
 
 	$: allThumbs = (() => {
 		const list: ThumbEntry[] = [];
 		if ($localStream) {
-			list.push({ id: '_self', stream: $localStream, name: senderName, isLocal: true, isCamOff: $isCamOff, mirror: true, tag: 'you' });
+			list.push({ id: '_self', stream: $localStream, name: senderName, isLocal: true, isCamOff: $isCamOff, mirror: true, micOff: $isMuted, tag: 'you' });
 		}
 		for (const [pid, p] of Object.entries($participants)) {
-			list.push({ id: pid, stream: p.videoStream, name: p.name, isLocal: false, isCamOff: !p.videoStream, mirror: false, tag: null });
+			list.push({ id: pid, stream: p.videoStream, name: p.name, isLocal: false, isCamOff: !p.videoStream, mirror: false, micOff: p.muted, tag: null });
 		}
 		return list;
 	})();
@@ -101,7 +105,12 @@
 
 <div class="room-shell">
 	<main class="room-main" class:sidebar-open={chatOpen}>
-		<section class="stage" class:split={hasScreenShare}>
+		<section
+			class="stage"
+			class:split={hasScreenShare}
+			style:--per-row={gridCols}
+			style:--rows={gridRows}
+		>
 			{#if hasScreenShare}
 				<div class="screens">
 					{#if $localScreenStream}
@@ -135,6 +144,7 @@
 								mirror={t.mirror}
 								isLocal={t.isLocal}
 								isCamOff={t.isCamOff}
+								micOff={t.micOff}
 								tag={t.tag}
 							/>
 						</div>
@@ -154,11 +164,12 @@
 						mirror={true}
 						isLocal={true}
 						isCamOff={$isCamOff}
+						micOff={$isMuted}
 						tag="you"
 					/>
 				{/if}
 				{#each Object.entries($participants) as [pid, p] (pid)}
-					<Tile stream={p.videoStream} name={p.name} isCamOff={!p.videoStream} />
+					<Tile stream={p.videoStream} name={p.name} isCamOff={!p.videoStream} micOff={p.muted} />
 				{/each}
 			{/if}
 		</section>
@@ -269,17 +280,30 @@
 	}
 
 	.stage {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
 		gap: 0.5rem;
 		padding: 0.75rem;
 		overflow: hidden;
 		min-height: 0;
 		min-width: 0;
-		place-content: center;
+	}
+
+	.stage:not(.split) {
+		display: flex;
+		flex-wrap: wrap;
+		align-content: center;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.stage:not(.split) > :global(.tile) {
+		flex: 0 1 auto;
+		width: calc((100% - (var(--per-row, 1) - 1) * 0.5rem) / var(--per-row, 1));
+		max-height: calc((100% - (var(--rows, 1) - 1) * 0.5rem) / var(--rows, 1));
+		min-width: 0;
 	}
 
 	.stage.split {
+		display: grid;
 		grid-template-columns: minmax(0, 1fr) 220px;
 		grid-template-rows: minmax(0, 1fr);
 		place-content: stretch;
@@ -460,9 +484,17 @@
 
 	@media (max-width: 640px) {
 		.stage {
-			grid-template-columns: 1fr;
 			padding: 0.25rem;
 			gap: 0.25rem;
+		}
+
+		.stage:not(.split) {
+			overflow-y: auto;
+		}
+
+		.stage:not(.split) > :global(.tile) {
+			width: 100%;
+			max-height: none;
 		}
 
 		.room-main.sidebar-open {
