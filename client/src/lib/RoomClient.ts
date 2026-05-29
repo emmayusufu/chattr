@@ -38,6 +38,12 @@ type AdmissionAck = {
 };
 
 const codecOptions = { videoGoogleStartBitrate: 1000 };
+const audioCodecOptions = {
+	opusStereo: false,
+	opusDtx: true,
+	opusFec: true,
+	opusMaxAverageBitrate: 32000
+};
 const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
 const cameraEncodings = [
 	{ rid: 'r0', maxBitrate: 150_000, scalabilityMode: 'S1T3' },
@@ -239,6 +245,7 @@ export class RoomClient {
 			this.audioProducer = await withRetry(() =>
 				this.audioSendTransport!.produce({
 					track: audioTrack,
+					codecOptions: audioCodecOptions,
 					stopTracks: false
 				})
 			);
@@ -350,6 +357,7 @@ export class RoomClient {
 				} else if (this.audioSendTransport) {
 					this.audioProducer = await this.audioSendTransport.produce({
 						track: newTrack,
+						codecOptions: audioCodecOptions,
 						stopTracks: false
 					});
 				}
@@ -909,6 +917,7 @@ export class RoomClient {
 			if (this.cameraAudioTrack && !muted) {
 				this.audioProducer = await this.audioSendTransport.produce({
 					track: this.cameraAudioTrack,
+					codecOptions: audioCodecOptions,
 					stopTracks: false
 				});
 			}
