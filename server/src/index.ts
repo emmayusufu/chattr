@@ -8,6 +8,16 @@ import { rooms } from "./rooms.js";
 import { logger } from "./logger.js";
 import { config } from "./config.js";
 import { checkRate, clearRate } from "./rate-limit.js";
+import { validRoomId } from "./validate.js";
+
+if (process.env.NODE_ENV === "production" && config.clientOrigin === "*") {
+  logger.warn(
+    "CLIENT_ORIGIN is unset in production; CORS is wide open. Set it to the public origin."
+  );
+}
+
+const isMember = (roomId: string, participantId: string | undefined): boolean =>
+  !!participantId && !!rooms[roomId]?.users[participantId];
 
 const app = express();
 const httpServer = createServer(app);
@@ -15,7 +25,12 @@ const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
       const allowed = config.clientOrigin;
-      if (!origin || allowed === "*" || origin === allowed || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      if (
+        !origin ||
+        allowed === "*" ||
+        origin === allowed ||
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      ) {
         callback(null, true);
       } else {
         callback(null, false);
@@ -42,30 +57,30 @@ io.on("connection", (socket: Socket) => {
   registerDisconnectHandler(io, socket);
 
   socket.on("transcript-segment", (data: { roomId?: string; segment?: unknown }) => {
-    if (typeof data?.roomId === "string" && data.segment) {
-      socket.to(data.roomId).emit("transcript-segment", { segment: data.segment });
-    }
+    const roomId = validRoomId(data?.roomId);
+    if (!roomId || !data?.segment || !isMember(roomId, socket.data.participantId)) return;
+    socket.to(roomId).emit("transcript-segment", { segment: data.segment });
   });
 
   socket.on("start-transcription", (data: { roomId?: string }) => {
-    if (typeof data?.roomId === "string") {
-      socket.to(data.roomId).emit("start-transcription");
-    }
+    const roomId = validRoomId(data?.roomId);
+    if (!roomId || !isMember(roomId, socket.data.participantId)) return;
+    socket.to(roomId).emit("start-transcription");
   });
 
   socket.on("stop-transcription", (data: { roomId?: string }) => {
-    if (typeof data?.roomId === "string") {
-      socket.to(data.roomId).emit("stop-transcription");
-    }
+    const roomId = validRoomId(data?.roomId);
+    if (!roomId || !isMember(roomId, socket.data.participantId)) return;
+    socket.to(roomId).emit("stop-transcription");
   });
 
   socket.on("mute-state", (data: { roomId?: string; muted?: boolean }) => {
-    if (typeof data?.roomId !== "string" || typeof data?.muted !== "boolean") return;
-    const user = rooms[data.roomId]?.users[socket.id];
-    if (user) user.muted = data.muted;
-    socket.to(data.roomId).emit("mute-state", { userId: socket.id, muted: data.muted });
+    const roomId = validRoomId(data?.roomId);
+    const participantId = socket.data.participantId;
+    if (!roomId || typeof data?.muted !== "boolean" || !isMember(roomId, participantId)) return;
+    rooms[roomId].users[participantId].muted = data.muted;
+    socket.to(roomId).emit("mute-state", { userId: participantId, muted: data.muted });
   });
-
 });
 
 httpServer.listen(config.port, () => {

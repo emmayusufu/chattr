@@ -36,3 +36,12 @@ export function findProducerInRoom(roomId: string, producerId: string): Producer
   }
   return undefined;
 }
+
+export function userIdForProducer(roomId: string, producerId: string): string | null {
+  const room = rooms[roomId];
+  if (!room) return null;
+  for (const [uid, u] of Object.entries(room.users)) {
+    if (u.producers.some((p) => p.id === producerId)) return uid;
+  }
+  return null;
+}

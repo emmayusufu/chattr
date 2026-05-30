@@ -1,4 +1,10 @@
-import type { Consumer, Producer, Router, WebRtcTransport } from "mediasoup/node/lib/types";
+import type {
+  AudioLevelObserver,
+  Consumer,
+  Producer,
+  Router,
+  WebRtcTransport,
+} from "mediasoup/node/lib/types";
 
 export type ChatMessage = {
   sender: unknown;
@@ -17,11 +23,20 @@ export type User = {
   consumers: Consumer[];
   transports: UserTransport[];
   muted: boolean;
+  /**
+   * Identity is the stable, client-generated participantId (the key in
+   * room.users). socketId is the current live socket and changes on reconnect.
+   */
+  socketId: string;
+  sessionToken: string;
+  disconnected: boolean;
+  graceTimer: ReturnType<typeof setTimeout> | null;
 };
 
 export type PendingJoiner = {
   name: string;
   socketId: string;
+  sessionToken: string;
 };
 
 export type Invite = {
@@ -32,6 +47,7 @@ export type Invite = {
 
 export type Room = {
   router: Router;
+  audioLevelObserver: AudioLevelObserver;
   users: Record<string, User>;
   hostUserId: string | null;
   pending: Record<string, PendingJoiner>;

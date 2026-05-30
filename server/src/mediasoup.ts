@@ -37,4 +37,6 @@ export const webRtcTransportOptions = {
   enableUdp: true,
   enableTcp: true,
   preferUdp: true,
+  // Seed BWE so it ramps to a usable bitrate quickly instead of crawling up.
+  initialAvailableOutgoingBitrate: 1_000_000,
 };

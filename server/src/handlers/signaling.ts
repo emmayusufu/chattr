@@ -1,17 +1,20 @@
 import type { Server, Socket } from "socket.io";
 import type { DtlsParameters, RtpCapabilities, RtpParameters } from "mediasoup/node/lib/types";
 import { worker, mediaCodecs, webRtcTransportOptions } from "../mediasoup.js";
-import { rooms, getAllProducersInRoom, findProducerInRoom } from "../rooms.js";
+import { rooms, getAllProducersInRoom, findProducerInRoom, userIdForProducer } from "../rooms.js";
 import { logger } from "../logger.js";
 import { config } from "../config.js";
-import { validName, validRoomId } from "../validate.js";
+import { validId, validName, validRoomId } from "../validate.js";
+
+const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_INVITES_PER_ROOM = 20;
 
 async function admitUser(
-  io: Server,
   socket: Socket,
   roomId: string,
   userId: string,
-  name: string
+  name: string,
+  sessionToken: string
 ): Promise<{
   routerRtpCapabilities: RtpCapabilities;
   transportOptions: any;
@@ -24,6 +27,7 @@ async function admitUser(
     muted: u.muted,
   }));
   const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
+  transport.setMaxIncomingBitrate(5_000_000).catch(() => {});
 
   room.users[userId] = {
     name,
@@ -31,8 +35,13 @@ async function admitUser(
     consumers: [],
     transports: [{ transport, sender: true }],
     muted: false,
+    socketId: socket.id,
+    sessionToken,
+    disconnected: false,
+    graceTimer: null,
   };
 
+  socket.data.participantId = userId;
   socket.join(roomId);
   socket.to(roomId).emit("user-joined", { userId, name });
 
@@ -49,11 +58,22 @@ async function admitUser(
 }
 
 export function registerSignalingHandlers(io: Server, socket: Socket) {
-  const userId = socket.id;
+  // Identity is the stable participantId, resolved once join-room runs. Until
+  // then it falls back to socket.id (legacy clients that send no participantId).
+  let userId = socket.id;
 
   socket.on(
     "join-room",
-    async (data: { roomId: string; name: string; invite?: string }, callback) => {
+    async (
+      data: {
+        roomId: string;
+        name: string;
+        invite?: string;
+        participantId?: string;
+        sessionToken?: string;
+      },
+      callback
+    ) => {
       const roomId = validRoomId(data?.roomId);
       if (!roomId) {
         callback({ error: "invalid-room-id" });
@@ -61,6 +81,9 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
       }
 
       const name = validName(data?.name) ?? "guest";
+      userId = validId(data?.participantId) ?? socket.id;
+      const sessionToken = validId(data?.sessionToken) ?? socket.id;
+      socket.data.participantId = userId;
 
       if (!rooms[roomId]) {
         if (Object.keys(rooms).length >= config.maxRooms) {
@@ -72,8 +95,22 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
           return;
         }
         const router = await worker.createRouter({ mediaCodecs });
+        const audioLevelObserver = await router.createAudioLevelObserver({
+          maxEntries: 1,
+          threshold: -70,
+          interval: 800,
+        });
+        audioLevelObserver.on("volumes", (volumes) => {
+          const producerId = volumes[0]?.producer?.id;
+          const speaker = producerId ? userIdForProducer(roomId, producerId) : null;
+          io.to(roomId).emit("dominant-speaker", { userId: speaker });
+        });
+        audioLevelObserver.on("silence", () => {
+          io.to(roomId).emit("dominant-speaker", { userId: null });
+        });
         rooms[roomId] = {
           router,
+          audioLevelObserver,
           users: {},
           hostUserId: null,
           pending: {},
@@ -82,6 +119,59 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
       }
 
       const room = rooms[roomId];
+
+      // Reconnect inside the grace window: verify the secret token, then resume
+      // in place (fresh transport, host preserved) instead of bouncing to pending.
+      const existing = room.users[userId];
+      if (existing) {
+        if (existing.sessionToken !== sessionToken) {
+          callback({ error: "identity-conflict" });
+          return;
+        }
+        if (existing.graceTimer) {
+          clearTimeout(existing.graceTimer);
+          existing.graceTimer = null;
+        }
+        // The old media is dead; close it so other clients clean up their stale
+        // consumers. The reconnecting client re-produces on the new transport.
+        for (const producer of existing.producers) producer.close();
+        for (const consumer of existing.consumers) consumer.close();
+        for (const { transport } of existing.transports) transport.close();
+
+        const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
+        transport.setMaxIncomingBitrate(5_000_000).catch(() => {});
+        existing.producers = [];
+        existing.consumers = [];
+        existing.transports = [{ transport, sender: true }];
+        existing.socketId = socket.id;
+        existing.disconnected = false;
+        existing.name = name;
+
+        socket.join(roomId);
+        callback({
+          routerRtpCapabilities: room.router.rtpCapabilities,
+          transportOptions: {
+            id: transport.id,
+            iceParameters: transport.iceParameters,
+            iceCandidates: transport.iceCandidates,
+            dtlsParameters: transport.dtlsParameters,
+          },
+          participants: Object.entries(room.users)
+            .filter(([uid]) => uid !== userId)
+            .map(([uid, u]) => ({ userId: uid, name: u.name, muted: u.muted })),
+          isHost: room.hostUserId === userId,
+          reconnected: true,
+        });
+
+        // The host's pending requests went to their now-dead socket; replay them
+        // so anyone who knocked during the grace window is still approvable.
+        if (room.hostUserId === userId) {
+          for (const [pendingId, p] of Object.entries(room.pending)) {
+            socket.emit("pending-join-request", { userId: pendingId, name: p.name });
+          }
+        }
+        return;
+      }
 
       if (
         Object.keys(room.users).length + Object.keys(room.pending).length >=
@@ -95,10 +185,9 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // First user (or first after host left) becomes host and admitted immediately.
       if (room.hostUserId === null) {
         room.hostUserId = userId;
-        const admission = await admitUser(io, socket, roomId, userId, name);
+        const admission = await admitUser(socket, roomId, userId, name, sessionToken);
         callback({ ...admission, isHost: true });
         return;
       }
@@ -106,16 +195,18 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
       const inviteToken = typeof data?.invite === "string" ? data.invite : null;
       if (inviteToken) {
         const invite = room.invites[inviteToken];
-        if (invite && !invite.used) {
+        const fresh = invite && Date.now() - invite.createdAt < INVITE_TTL_MS;
+        if (invite && !fresh) delete room.invites[inviteToken];
+        if (invite && !invite.used && fresh) {
           invite.used = true;
-          const admission = await admitUser(io, socket, roomId, userId, name);
+          const admission = await admitUser(socket, roomId, userId, name, sessionToken);
           callback({ ...admission, isHost: false, bypassed: true });
           return;
         }
       }
 
-      room.pending[userId] = { name, socketId: userId };
-      const hostSocket = io.sockets.sockets.get(room.hostUserId);
+      room.pending[userId] = { name, socketId: socket.id, sessionToken };
+      const hostSocket = io.sockets.sockets.get(room.users[room.hostUserId]?.socketId ?? "");
       hostSocket?.emit("pending-join-request", { userId, name });
       callback({ status: "pending" });
     }
@@ -132,6 +223,13 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
       const room = rooms[roomId];
       if (!room || room.hostUserId !== userId) {
         callback?.({ error: "not-host" });
+        return;
+      }
+      for (const [t, inv] of Object.entries(room.invites)) {
+        if (Date.now() - inv.createdAt >= INVITE_TTL_MS) delete room.invites[t];
+      }
+      if (Object.keys(room.invites).length >= MAX_INVITES_PER_ROOM) {
+        callback?.({ error: "too-many-invites" });
         return;
       }
       const tokenBytes = new Uint8Array(18);
@@ -178,7 +276,13 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
     }
 
     delete room.pending[data.userId];
-    const admission = await admitUser(io, pendingSocket, roomId, data.userId, pending.name);
+    const admission = await admitUser(
+      pendingSocket,
+      roomId,
+      data.userId,
+      pending.name,
+      pending.sessionToken
+    );
     pendingSocket.emit("join-approved", admission);
     callback?.({ ok: true });
   });
@@ -231,7 +335,10 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
     ) => {
       const user = rooms[data.roomId]?.users[userId];
       const transport = user?.transports.find((t) => t.transport.id === data.transportId);
-      if (!user || !transport) return;
+      if (!user || !transport) {
+        callback?.({ error: "not-ready" });
+        return;
+      }
 
       const producer = await transport.transport.produce({
         kind: data.kind,
@@ -240,9 +347,13 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
       });
       user.producers.push(producer);
 
-      const otherProducers = getAllProducersInRoom(data.roomId, userId);
+      if (data.kind === "audio") {
+        rooms[data.roomId]?.audioLevelObserver
+          .addProducer({ producerId: producer.id })
+          .catch(() => {});
+      }
 
-      callback({ id: producer.id, otherProducers });
+      callback({ id: producer.id });
       socket.to(data.roomId).emit("new-producer", {
         producerId: producer.id,
         name: user.name,
@@ -252,10 +363,24 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
     }
   );
 
+  // The live producer set, fetched once the client is ready to receive, so no
+  // producer slips through the join-setup window.
+  socket.on("get-producers", (data: { roomId: string }, callback) => {
+    const user = rooms[data?.roomId]?.users[userId];
+    if (!user) {
+      callback?.({ error: "not-ready" });
+      return;
+    }
+    callback({ producers: getAllProducersInRoom(data.roomId, userId) });
+  });
+
   socket.on("create-receive-transport", async (data: { roomId: string }, callback) => {
     const room = rooms[data.roomId];
     const user = room?.users[userId];
-    if (!room || !user) return;
+    if (!room || !user) {
+      callback?.({ error: "not-ready" });
+      return;
+    }
 
     const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
     user.transports.push({ transport, sender: false });
@@ -273,9 +398,13 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
   socket.on("create-send-transport", async (data: { roomId: string }, callback) => {
     const room = rooms[data.roomId];
     const user = room?.users[userId];
-    if (!room || !user) return;
+    if (!room || !user) {
+      callback?.({ error: "not-ready" });
+      return;
+    }
 
     const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
+    transport.setMaxIncomingBitrate(5_000_000).catch(() => {});
     user.transports.push({ transport, sender: true });
 
     callback({
@@ -310,6 +439,18 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
     }
   );
 
+  socket.on("restart-ice", async (data: { roomId: string; transportId: string }, callback) => {
+    const entry = rooms[data?.roomId]?.users[userId]?.transports.find(
+      (t) => t.transport.id === data?.transportId
+    );
+    if (!entry) {
+      callback?.({ error: "not-found" });
+      return;
+    }
+    const iceParameters = await entry.transport.restartIce();
+    callback?.({ iceParameters });
+  });
+
   socket.on("close-producer", ({ roomId, producerId }: { roomId: string; producerId: string }) => {
     const user = rooms[roomId]?.users[userId];
     if (!user) return;
@@ -334,6 +475,43 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
     }
   );
 
+  socket.on("pause-consumer", ({ roomId, producerId }: { roomId: string; producerId: string }) => {
+    const user = rooms[roomId]?.users[userId];
+    if (!user) return;
+    for (const c of user.consumers) {
+      if (c.producerId === producerId) c.pause().catch(() => {});
+    }
+  });
+
+  socket.on("resume-consumer", ({ roomId, producerId }: { roomId: string; producerId: string }) => {
+    const user = rooms[roomId]?.users[userId];
+    if (!user) return;
+    for (const c of user.consumers) {
+      if (c.producerId === producerId) {
+        c.resume()
+          .then(() => c.requestKeyFrame())
+          .catch(() => {});
+      }
+    }
+  });
+
+  socket.on(
+    "set-preferred-layers",
+    (data: { roomId: string; producerId: string; spatialLayer: number; temporalLayer: number }) => {
+      if (typeof data?.spatialLayer !== "number") return;
+      const user = rooms[data.roomId]?.users[userId];
+      if (!user) return;
+      for (const c of user.consumers) {
+        if (c.producerId === data.producerId && c.kind === "video") {
+          c.setPreferredLayers({
+            spatialLayer: data.spatialLayer,
+            temporalLayer: data.temporalLayer,
+          }).catch(() => {});
+        }
+      }
+    }
+  );
+
   socket.on(
     "consume",
     async (
@@ -350,7 +528,10 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
       const userTransport = user?.transports.find(
         ({ transport }) => transport.id === data.transportId
       );
-      if (!room || !user || !userTransport) return;
+      if (!room || !user || !userTransport) {
+        callback?.({ error: "not-ready" });
+        return;
+      }
 
       if (
         !room.router.canConsume({
@@ -358,6 +539,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
           rtpCapabilities: data.rtpCapabilities,
         })
       ) {
+        callback?.({ error: "cannot-consume" });
         return;
       }
 
@@ -372,14 +554,13 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
       });
       consumer.on("producerclose", () => {
         socket.emit("producer-closed", { producerId: data.producerId });
+        // Close only this consumer, not the shared recv transport (which now
+        // carries every other consumer too).
+        consumer.close();
         const currentUser = rooms[data.roomId]?.users[userId];
-        if (!currentUser) return;
-
-        userTransport.transport.close();
-        currentUser.transports = currentUser.transports.filter(
-          (t) => t.transport.id !== userTransport.transport.id
-        );
-        currentUser.consumers = currentUser.consumers.filter((c) => c.id !== consumer.id);
+        if (currentUser) {
+          currentUser.consumers = currentUser.consumers.filter((c) => c.id !== consumer.id);
+        }
       });
 
       user.consumers.push(consumer);

@@ -7,11 +7,16 @@ const limits: Record<string, { capacity: number; refillPerSec: number }> = {
   consume: { capacity: 20, refillPerSec: 10 },
   "create-send-transport": { capacity: 8, refillPerSec: 2 },
   "create-receive-transport": { capacity: 30, refillPerSec: 15 },
+  "get-producers": { capacity: 20, refillPerSec: 10 },
   "request-keyframe": { capacity: 30, refillPerSec: 15 },
+  "restart-ice": { capacity: 10, refillPerSec: 1 },
   "create-invite": { capacity: 10, refillPerSec: 1 },
   "revoke-invite": { capacity: 20, refillPerSec: 5 },
   "transcript-segment": { capacity: 30, refillPerSec: 10 },
   "mute-state": { capacity: 10, refillPerSec: 3 },
+  "pause-consumer": { capacity: 60, refillPerSec: 30 },
+  "resume-consumer": { capacity: 60, refillPerSec: 30 },
+  "set-preferred-layers": { capacity: 60, refillPerSec: 30 },
 };
 
 const defaultLimit = { capacity: 30, refillPerSec: 20 };
