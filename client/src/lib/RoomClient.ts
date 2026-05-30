@@ -5,18 +5,11 @@ import type { RtpCapabilities } from 'mediasoup-client/lib/RtpParameters';
 
 import { emitWithTimeout, withRetry } from './socket-utils.js';
 import { describeMediaError } from './media-errors.js';
-import { ChatRatchet, deriveRootKey } from './chat-crypto.js';
-import {
-	askGemini,
-	captureFrame,
-	findLargestVideo,
-	getStoredApiKey,
-	setStoredApiKey
-} from './ai.js';
-import {
-	createRecognition,
-	type TranscriptSegment
-} from './transcription.js';
+import type { TranscriptSegment } from './transcription.js';
+import { Denoiser } from './denoise.js';
+import { ChatController } from './chat-controller.js';
+import { AiController } from './ai-controller.js';
+import { TranscriptionController } from './transcription-controller.js';
 
 export type Participant = {
 	name: string;
@@ -30,6 +23,8 @@ export type ChatMessage = { sender: string; message: string };
 export type PendingJoiner = { userId: string; name: string };
 export type JoinStatus = 'connecting' | 'pending' | 'admitted' | 'denied' | 'host-left';
 
+type RemoteProducerInfo = { producerId: string; name: string; userId: string };
+
 type AdmissionAck = {
 	routerRtpCapabilities: RtpCapabilities;
 	transportOptions: any;
@@ -42,9 +37,17 @@ const audioCodecOptions = {
 	opusStereo: false,
 	opusDtx: true,
 	opusFec: true,
-	opusMaxAverageBitrate: 32000
+	opusNack: true,
+	opusMaxAverageBitrate: 20000
 };
-const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+const iceServers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+if (import.meta.env.VITE_TURN_URL) {
+	iceServers.push({
+		urls: import.meta.env.VITE_TURN_URL,
+		username: import.meta.env.VITE_TURN_USERNAME,
+		credential: import.meta.env.VITE_TURN_CREDENTIAL
+	});
+}
 const cameraEncodings = [
 	{ rid: 'r0', maxBitrate: 150_000, scalabilityMode: 'S1T3' },
 	{ rid: 'r1', maxBitrate: 500_000, scalabilityMode: 'S1T3' },
@@ -61,7 +64,6 @@ export type RoomClientOptions = {
 
 export class RoomClient {
 	readonly participants: Writable<Record<string, Participant>> = writable({});
-	readonly messages: Writable<ChatMessage[]> = writable([]);
 	readonly localStream: Writable<MediaStream | null> = writable(null);
 	readonly localScreenStream: Writable<MediaStream | null> = writable(null);
 	readonly reconnecting: Writable<boolean> = writable(false);
@@ -73,18 +75,29 @@ export class RoomClient {
 	readonly isHost: Writable<boolean> = writable(false);
 	readonly pendingJoiners: Writable<PendingJoiner[]> = writable([]);
 	readonly joinStatus: Writable<JoinStatus> = writable('connecting');
-	readonly chatEncrypted: Writable<boolean> = writable(false);
-	readonly aiMessages: Writable<ChatMessage[]> = writable([]);
-	readonly aiPending: Writable<boolean> = writable(false);
-	readonly transcript: Writable<TranscriptSegment[]> = writable([]);
-	readonly isTranscribing: Writable<boolean> = writable(false);
+	readonly dominantSpeaker: Writable<string | null> = writable(null);
+
+	readonly messages: Writable<ChatMessage[]>;
+	readonly chatEncrypted: Writable<boolean>;
+	readonly aiMessages: Writable<ChatMessage[]>;
+	readonly aiPending: Writable<boolean>;
+	readonly transcript: Writable<TranscriptSegment[]>;
+	readonly isTranscribing: Writable<boolean>;
 
 	private readonly roomId: string;
 	readonly name: string;
 	private readonly serverUrl: string;
-	private readonly chatSecret?: string;
 	private readonly inviteToken?: string;
-	private chatRatchet: ChatRatchet | null = null;
+	/**
+	 * participantId is the public room key; sessionToken is the secret that lets
+	 * a dropped socket resume in place on reconnect instead of rejoining fresh.
+	 */
+	private readonly participantId = crypto.randomUUID();
+	private readonly sessionToken = crypto.randomUUID();
+
+	private readonly chat: ChatController;
+	private readonly ai: AiController;
+	private readonly transcription: TranscriptionController;
 
 	private socket: Socket | null = null;
 	private device: mediasoupClient.Device | null = null;
@@ -100,34 +113,45 @@ export class RoomClient {
 	private audioProducer: mediasoupClient.types.Producer | null = null;
 	private screenSendTransport: mediasoupClient.types.Transport | null = null;
 	private screenProducer: mediasoupClient.types.Producer | null = null;
-	private recvTransports: Record<string, mediasoupClient.types.Transport> = {};
+	private recvTransport: mediasoupClient.types.Transport | null = null;
+	private recvTransportPromise: Promise<mediasoupClient.types.Transport> | null = null;
 
 	private producerToUser: Record<string, string> = {};
 	private producerKinds: Record<string, 'audio' | 'video'> = {};
 	private producerIsScreen: Record<string, boolean> = {};
 	private consumedProducerIds = new Set<string>();
-	private recognition: { start: () => void; stop: () => void } | null = null;
+	private pausedVideoProducers = new Set<string>();
+	private sentVideoLayers = new Map<string, number>();
+	private denoiser: Denoiser | null = null;
+	private denoiseEnabled = true;
+
+	private async producedAudioTrack(rawTrack: MediaStreamTrack): Promise<MediaStreamTrack> {
+		if (!this.denoiseEnabled) return rawTrack;
+		if (!this.denoiser) this.denoiser = new Denoiser();
+		return this.denoiser.process(rawTrack);
+	}
 
 	constructor({ roomId, name, serverUrl, chatSecret, inviteToken }: RoomClientOptions) {
 		this.roomId = roomId;
 		this.name = name;
 		this.serverUrl = serverUrl;
-		this.chatSecret = chatSecret;
 		this.inviteToken = inviteToken;
+
+		this.chat = new ChatController(roomId, name, chatSecret);
+		this.ai = new AiController(name);
+		this.transcription = new TranscriptionController(roomId, name);
+		this.messages = this.chat.messages;
+		this.chatEncrypted = this.chat.encrypted;
+		this.aiMessages = this.ai.messages;
+		this.aiPending = this.ai.pending;
+		this.transcript = this.transcription.transcript;
+		this.isTranscribing = this.transcription.isTranscribing;
 	}
 
 	async start(): Promise<void> {
 		this.mediaError.set(null);
 
-		if (this.chatSecret && globalThis.crypto?.subtle) {
-			try {
-				const rootKey = await deriveRootKey(this.chatSecret);
-				this.chatRatchet = new ChatRatchet(rootKey, this.name);
-				this.chatEncrypted.set(true);
-			} catch (err) {
-				console.error('failed to derive chat key:', err);
-			}
-		}
+		await this.chat.initCrypto();
 
 		try {
 			this.cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -165,7 +189,9 @@ export class RoomClient {
 			}>(this.socket, 'join-room', {
 				roomId: this.roomId,
 				name: this.name,
-				invite: this.inviteToken
+				invite: this.inviteToken,
+				participantId: this.participantId,
+				sessionToken: this.sessionToken
 			})
 		);
 
@@ -230,6 +256,11 @@ export class RoomClient {
 		});
 		this.setupSendTransport(this.audioSendTransport);
 
+		// Consume independent of our own producing (so a muted, camera-off joiner
+		// still sees everyone); attach handlers first so nothing is missed.
+		this.attachRoomEventHandlers();
+		await this.fetchAndConsumeProducers();
+
 		if (this.cameraVideoTrack) {
 			this.videoProducer = await withRetry(() =>
 				this.videoSendTransport!.produce({
@@ -240,7 +271,9 @@ export class RoomClient {
 				})
 			);
 		}
-		const audioTrack = this.cameraAudioTrack;
+		const audioTrack = this.cameraAudioTrack
+			? await this.producedAudioTrack(this.cameraAudioTrack)
+			: null;
 		if (audioTrack) {
 			this.audioProducer = await withRetry(() =>
 				this.audioSendTransport!.produce({
@@ -251,15 +284,81 @@ export class RoomClient {
 			);
 		}
 
-		this.attachRoomEventHandlers();
-		this.socket?.emit('get-chat-history', this.roomId);
+		this.chat.requestHistory();
 		this.emitMuteState();
 		this.hasJoined = true;
 		this.joinStatus.set('admitted');
 	}
 
+	private async fetchAndConsumeProducers(): Promise<void> {
+		let producers: RemoteProducerInfo[] = [];
+		try {
+			const res = await withRetry(() =>
+				emitWithTimeout<{ producers?: RemoteProducerInfo[] }>(this.socket, 'get-producers', {
+					roomId: this.roomId
+				})
+			);
+			producers = res.producers ?? [];
+		} catch (err) {
+			// Don't hang the join if the snapshot fails. new-producer events and the
+			// next reconnect's refetch fill in any peers we miss here.
+			console.error('get-producers failed:', err);
+			return;
+		}
+		for (const { producerId, name, userId } of producers) {
+			this.producerToUser[producerId] = userId;
+			this.upsertParticipant(userId, name);
+			await this.consume(producerId);
+		}
+	}
+
 	private emitMuteState(): void {
 		this.socket?.emit('mute-state', { roomId: this.roomId, muted: this.snapshot(this.isMuted) });
+	}
+
+	/**
+	 * last-N: pause server-side forwarding of camera video for participants that
+	 * aren't currently rendered, resume those that are. Audio and screen shares
+	 * are never paused. Only emits on a state change to avoid socket spam.
+	 */
+	setVisibleParticipants(visibleUserIds: string[]): void {
+		if (!this.socket) return;
+		const visible = new Set(visibleUserIds);
+		for (const [producerId, owner] of Object.entries(this.producerToUser)) {
+			if (this.producerKinds[producerId] !== 'video' || this.producerIsScreen[producerId]) continue;
+			const shouldPause = !visible.has(owner);
+			const isPaused = this.pausedVideoProducers.has(producerId);
+			if (shouldPause && !isPaused) {
+				this.socket.emit('pause-consumer', { roomId: this.roomId, producerId });
+				this.pausedVideoProducers.add(producerId);
+			} else if (!shouldPause && isPaused) {
+				this.socket.emit('resume-consumer', { roomId: this.roomId, producerId });
+				this.pausedVideoProducers.delete(producerId);
+			}
+		}
+	}
+
+	/**
+	 * Ask the SFU to forward a smaller simulcast spatial layer for cameras shown
+	 * in small tiles (thumbnails), and a higher one for large tiles. Keyed by the
+	 * participant's userId → desired spatial layer (0 lowest .. 2 highest). Only
+	 * emits on a change. Screens and audio are untouched.
+	 */
+	setParticipantLayers(layers: Record<string, number>): void {
+		if (!this.socket) return;
+		for (const [producerId, owner] of Object.entries(this.producerToUser)) {
+			if (this.producerKinds[producerId] !== 'video' || this.producerIsScreen[producerId]) continue;
+			const spatial = layers[owner];
+			if (spatial === undefined) continue;
+			if (this.sentVideoLayers.get(producerId) === spatial) continue;
+			this.sentVideoLayers.set(producerId, spatial);
+			this.socket.emit('set-preferred-layers', {
+				roomId: this.roomId,
+				producerId,
+				spatialLayer: spatial,
+				temporalLayer: 2
+			});
+		}
 	}
 
 	private attachWaitingHandlers(): void {
@@ -331,11 +430,25 @@ export class RoomClient {
 
 	async leave(): Promise<void> {
 		this.hasJoined = false;
-		this.recognition?.stop();
-		this.recognition = null;
+		this.transcription.stop();
+		this.denoiser?.cleanup();
+		this.denoiser = null;
+		this.closeTransports();
 		this.cameraStream?.getTracks().forEach((t) => t.stop());
 		this.screenStream?.getTracks().forEach((t) => t.stop());
 		this.socket?.disconnect();
+	}
+
+	private closeTransports(): void {
+		this.videoSendTransport?.close();
+		this.audioSendTransport?.close();
+		this.screenSendTransport?.close();
+		this.recvTransport?.close();
+		this.videoSendTransport = null;
+		this.audioSendTransport = null;
+		this.screenSendTransport = null;
+		this.recvTransport = null;
+		this.recvTransportPromise = null;
 	}
 
 	async toggleMute(): Promise<void> {
@@ -352,11 +465,12 @@ export class RoomClient {
 					this.cameraStream.addTrack(newTrack);
 				}
 
+				const producedTrack = await this.producedAudioTrack(newTrack);
 				if (this.audioProducer) {
-					await this.audioProducer.replaceTrack({ track: newTrack });
+					await this.audioProducer.replaceTrack({ track: producedTrack });
 				} else if (this.audioSendTransport) {
 					this.audioProducer = await this.audioSendTransport.produce({
-						track: newTrack,
+						track: producedTrack,
 						codecOptions: audioCodecOptions,
 						stopTracks: false
 					});
@@ -426,8 +540,11 @@ export class RoomClient {
 			return;
 		}
 		try {
-			this.screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+			this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+				video: { frameRate: { max: 15 }, height: { max: 1080 } }
+			});
 			const screenTrack = this.screenStream.getVideoTracks()[0];
+			if ('contentHint' in screenTrack) screenTrack.contentHint = 'detail';
 
 			const { transportOptions } = await withRetry(() =>
 				emitWithTimeout<{ transportOptions: any }>(this.socket, 'create-send-transport', {
@@ -443,6 +560,7 @@ export class RoomClient {
 			this.screenProducer = await withRetry(() =>
 				this.screenSendTransport!.produce({
 					track: screenTrack,
+					encodings: [{ maxBitrate: 1_500_000 }],
 					codecOptions,
 					stopTracks: false,
 					appData: { isScreen: true }
@@ -462,138 +580,15 @@ export class RoomClient {
 	}
 
 	async sendMessage(text: string): Promise<void> {
-		const trimmed = text.trim();
-		if (!trimmed || !this.socket) return;
-		await this.broadcastChat(trimmed, this.name);
-	}
-
-	private async broadcastChat(
-		plaintext: string,
-		sender: string,
-		opts: { encrypt?: boolean } = {}
-	): Promise<void> {
-		if (!this.socket) return;
-		const encrypt = opts.encrypt ?? true;
-		let payload = plaintext;
-		if (encrypt && this.chatRatchet) {
-			try {
-				payload = await this.chatRatchet.encrypt(plaintext);
-			} catch (err) {
-				console.error('chat encrypt failed:', err);
-				return;
-			}
-		}
-		this.socket.emit('send-chat-message', {
-			roomId: this.roomId,
-			message: payload,
-			sender
-		});
-		if (sender === this.name) {
-			this.messages.update((list) => [...list, { sender, message: plaintext }]);
-		}
+		await this.chat.send(text);
 	}
 
 	async askAiPrivate(text: string): Promise<void> {
-		const trimmed = text.trim();
-		if (!trimmed) return;
-
-		if (trimmed.startsWith('/ai-key')) {
-			const key = trimmed.slice('/ai-key'.length).trim();
-			setStoredApiKey(key);
-			this.aiMessages.update((list) => [
-				...list,
-				{ sender: 'AI', message: key ? 'Gemini key saved.' : 'Gemini key cleared.' }
-			]);
-			return;
-		}
-
-		const apiKey = getStoredApiKey();
-		if (!apiKey) {
-			this.aiMessages.update((list) => [
-				...list,
-				{ sender: this.name, message: trimmed },
-				{ sender: 'AI', message: 'No Gemini key. Send `/ai-key YOUR_KEY` to set one.' }
-			]);
-			return;
-		}
-
-		this.aiMessages.update((list) => [...list, { sender: this.name, message: trimmed }]);
-		this.aiPending.set(true);
-
-		try {
-			const history = await this.readStore(this.aiMessages);
-			const context = history
-				.slice(-8)
-				.map((m) => `${m.sender}: ${m.message}`)
-				.join('\n');
-
-			let imageBase64: string | null = null;
-			const video = findLargestVideo();
-			if (video) {
-				try {
-					imageBase64 = await captureFrame(video);
-				} catch {
-					/* skip */
-				}
-			}
-
-			const answer = await askGemini({ apiKey, question: trimmed, imageBase64, context });
-			this.aiMessages.update((list) => [...list, { sender: 'AI', message: answer }]);
-		} catch (err: any) {
-			this.aiMessages.update((list) => [
-				...list,
-				{ sender: 'AI', message: `error: ${err?.message ?? err}` }
-			]);
-		} finally {
-			this.aiPending.set(false);
-		}
+		await this.ai.ask(text);
 	}
 
 	toggleTranscription(): void {
-		const socket = this.socket;
-		if (!socket) return;
-
-		if (this.recognition) {
-			socket.emit('stop-transcription', { roomId: this.roomId });
-			this.stopRecognition();
-		} else {
-			socket.emit('start-transcription', { roomId: this.roomId });
-			this.startRecognition();
-		}
-	}
-
-	private startRecognition(): void {
-		if (this.recognition) return;
-		const socket = this.socket;
-		if (!socket) return;
-
-		this.recognition = createRecognition(
-			(text, isFinal) => {
-				if (!isFinal) return;
-				const segment: TranscriptSegment = {
-					speaker: this.name,
-					text,
-					timestamp: Date.now()
-				};
-				this.transcript.update((t) => [...t, segment]);
-				socket.emit('transcript-segment', {
-					roomId: this.roomId,
-					segment
-				});
-			},
-			(error) => console.warn('speech recognition error:', error)
-		);
-
-		if (this.recognition) {
-			this.recognition.start();
-			this.isTranscribing.set(true);
-		}
-	}
-
-	private stopRecognition(): void {
-		this.recognition?.stop();
-		this.recognition = null;
-		this.isTranscribing.set(false);
+		this.transcription.toggle();
 	}
 
 	private async stopShare(): Promise<void> {
@@ -667,37 +662,48 @@ export class RoomClient {
 
 		transport.on('produce', async ({ kind, rtpParameters, appData }, callback, errback) => {
 			try {
-				const { id, otherProducers } = await emitWithTimeout<{
-					id: string;
-					otherProducers: {
-						producerId: string;
-						name: string;
-						userId: string;
-						appData: Record<string, unknown>;
-					}[];
-				}>(this.socket, 'produce', {
+				const { id } = await emitWithTimeout<{ id: string }>(this.socket, 'produce', {
 					transportId: transport.id,
 					kind,
 					rtpParameters,
 					appData,
 					roomId: this.roomId
 				});
-
-				for (const { producerId, name, userId } of otherProducers) {
-					this.producerToUser[producerId] = userId;
-					this.upsertParticipant(userId, name);
-					await this.consume(producerId);
-				}
-
 				callback({ id });
 			} catch (error) {
 				errback(error as Error);
 			}
 		});
+
+		this.wireIceRecovery(transport);
+	}
+
+	private wireIceRecovery(transport: mediasoupClient.types.Transport): void {
+		transport.on('connectionstatechange', (state) => {
+			if (state === 'failed') void this.restartIce(transport);
+		});
+	}
+
+	private async restartIce(transport: mediasoupClient.types.Transport): Promise<void> {
+		if (!this.hasJoined || transport.closed) return;
+		try {
+			const { iceParameters } = await emitWithTimeout<{
+				iceParameters: mediasoupClient.types.IceParameters;
+			}>(this.socket, 'restart-ice', {
+				roomId: this.roomId,
+				transportId: transport.id
+			});
+			await transport.restartIce({ iceParameters });
+		} catch (error) {
+			console.warn('ICE restart failed', error);
+		}
 	}
 
 	private attachRoomEventHandlers(): void {
 		if (!this.socket) return;
+
+		this.chat.attach(this.socket);
+		this.transcription.attach(this.socket);
 
 		this.socket.on('user-joined', ({ userId, name }: { userId: string; name: string }) => {
 			this.upsertParticipant(userId, name);
@@ -730,6 +736,8 @@ export class RoomClient {
 
 		this.socket.on('producer-closed', ({ producerId }: { producerId: string }) => {
 			this.consumedProducerIds.delete(producerId);
+			this.pausedVideoProducers.delete(producerId);
+			this.sentVideoLayers.delete(producerId);
 			const userId = this.producerToUser[producerId];
 			const kind = this.producerKinds[producerId];
 			const isScreen = this.producerIsScreen[producerId];
@@ -751,59 +759,15 @@ export class RoomClient {
 			}
 		});
 
-		this.socket.on('receive-chat-message', async (msg: ChatMessage) => {
-			if (msg.sender === this.name) return;
-			let decoded = msg;
-			if (this.chatRatchet) {
-				try {
-					decoded = { ...msg, message: await this.chatRatchet.decrypt(msg.message, msg.sender) };
-				} catch {
-					decoded = msg;
-				}
-			}
-			this.messages.update((list) => [...list, decoded]);
-		});
-
-		this.socket.on('receive-chat-history', async (history: ChatMessage[]) => {
-			if (!this.chatRatchet) {
-				this.messages.set(history);
-				return;
-			}
-			this.chatRatchet.resetReceivers();
-			const decoded: ChatMessage[] = [];
-			for (const msg of history) {
-				try {
-					decoded.push({
-						...msg,
-						message: await this.chatRatchet.decrypt(msg.message, msg.sender)
-					});
-				} catch {
-					decoded.push(msg);
-				}
-			}
-			this.messages.set(decoded);
-		});
-
-		this.socket.on('transcript-segment', (data: { segment: TranscriptSegment }) => {
-			if (data?.segment?.speaker === this.name) return;
-			if (data?.segment) {
-				this.transcript.update((t) => [...t, data.segment]);
-			}
-		});
-
-		this.socket.on('start-transcription', () => {
-			this.startRecognition();
-		});
-
-		this.socket.on('stop-transcription', () => {
-			this.stopRecognition();
-		});
-
 		this.socket.on('mute-state', ({ userId, muted }: { userId: string; muted: boolean }) => {
 			this.participants.update((p) => {
 				if (!p[userId]) return p;
 				return { ...p, [userId]: { ...p[userId], muted } };
 			});
+		});
+
+		this.socket.on('dominant-speaker', ({ userId }: { userId: string | null }) => {
+			this.dominantSpeaker.set(userId);
 		});
 
 		this.socket.on('disconnect', () => {
@@ -823,7 +787,9 @@ export class RoomClient {
 		this.producerKinds = {};
 		this.producerIsScreen = {};
 		this.consumedProducerIds.clear();
-		this.videoSendTransport = null;
+		this.pausedVideoProducers.clear();
+		this.sentVideoLayers.clear();
+		this.closeTransports();
 		this.videoProducer = null;
 		this.audioProducer = null;
 
@@ -839,7 +805,9 @@ export class RoomClient {
 				}>(this.socket, 'join-room', {
 					roomId: this.roomId,
 					name: this.name,
-					invite: this.inviteToken
+					invite: this.inviteToken,
+					participantId: this.participantId,
+					sessionToken: this.sessionToken
 				})
 			);
 
@@ -892,6 +860,8 @@ export class RoomClient {
 			});
 			this.setupSendTransport(this.audioSendTransport);
 
+			await this.fetchAndConsumeProducers();
+
 			const camOff = await this.readStore(this.isCamOff);
 			const muted = await this.readStore(this.isMuted);
 
@@ -915,14 +885,15 @@ export class RoomClient {
 			}
 
 			if (this.cameraAudioTrack && !muted) {
+				const producedTrack = await this.producedAudioTrack(this.cameraAudioTrack);
 				this.audioProducer = await this.audioSendTransport.produce({
-					track: this.cameraAudioTrack,
+					track: producedTrack,
 					codecOptions: audioCodecOptions,
 					stopTracks: false
 				});
 			}
 
-			this.socket?.emit('get-chat-history', this.roomId);
+			this.chat.requestHistory();
 			this.emitMuteState();
 			this.reconnecting.set(false);
 		} catch (err) {
@@ -930,36 +901,64 @@ export class RoomClient {
 		}
 	}
 
+	/**
+	 * Memoize the in-flight promise so concurrent consume() calls share one
+	 * recv transport instead of racing to create duplicates.
+	 */
+	private getRecvTransport(): Promise<mediasoupClient.types.Transport> {
+		if (this.recvTransport && !this.recvTransport.closed) {
+			return Promise.resolve(this.recvTransport);
+		}
+		// A closed transport is a dead cache entry (e.g. ICE failed past recovery);
+		// drop it so the next consume rebuilds a fresh one.
+		if (this.recvTransport?.closed) {
+			this.recvTransport = null;
+			this.recvTransportPromise = null;
+		}
+		if (this.recvTransportPromise) return this.recvTransportPromise;
+		this.recvTransportPromise = this.createRecvTransport().catch((err) => {
+			this.recvTransportPromise = null;
+			throw err;
+		});
+		return this.recvTransportPromise;
+	}
+
+	private async createRecvTransport(): Promise<mediasoupClient.types.Transport> {
+		const { transportOptions } = await withRetry(() =>
+			emitWithTimeout<{ transportOptions: any }>(this.socket, 'create-receive-transport', {
+				roomId: this.roomId
+			})
+		);
+
+		const recvTransport = this.device!.createRecvTransport({
+			...transportOptions,
+			iceServers
+		});
+
+		recvTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+			try {
+				await emitWithTimeout(this.socket, 'connect-receive-transport', {
+					transportId: recvTransport.id,
+					dtlsParameters,
+					roomId: this.roomId
+				});
+				callback();
+			} catch (error) {
+				errback(error as Error);
+			}
+		});
+
+		this.wireIceRecovery(recvTransport);
+		this.recvTransport = recvTransport;
+		return recvTransport;
+	}
+
 	private async consume(producerId: string): Promise<void> {
 		if (this.consumedProducerIds.has(producerId)) return;
 		this.consumedProducerIds.add(producerId);
 
 		try {
-			const { transportOptions } = await withRetry(() =>
-				emitWithTimeout<{ transportOptions: any }>(this.socket, 'create-receive-transport', {
-					roomId: this.roomId
-				})
-			);
-
-			const recvTransport = this.device!.createRecvTransport({
-				...transportOptions,
-				iceServers
-			});
-
-			recvTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-				try {
-					await emitWithTimeout(this.socket, 'connect-receive-transport', {
-						transportId: recvTransport.id,
-						dtlsParameters,
-						roomId: this.roomId
-					});
-					callback();
-				} catch (error) {
-					errback(error as Error);
-				}
-			});
-
-			this.recvTransports[recvTransport.id] = recvTransport;
+			const recvTransport = await this.getRecvTransport();
 
 			const consumerOptions = await withRetry(() =>
 				emitWithTimeout<
@@ -978,14 +977,11 @@ export class RoomClient {
 			const stream = new MediaStream([consumer.track]);
 			const userId = this.producerToUser[producerId];
 			this.producerKinds[producerId] = consumer.kind as 'audio' | 'video';
-			const isScreen = !!(consumerOptions.appData?.isScreen);
+			const isScreen = !!consumerOptions.appData?.isScreen;
 			this.producerIsScreen[producerId] = isScreen;
 
 			if (consumer.kind === 'video') {
 				this.socket?.emit('request-keyframe', { roomId: this.roomId, producerId });
-				setTimeout(() => {
-					this.socket?.emit('request-keyframe', { roomId: this.roomId, producerId });
-				}, 800);
 			}
 
 			if (userId) {
