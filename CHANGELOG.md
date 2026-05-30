@@ -18,7 +18,7 @@ All notable changes to chattr, newest first. Format follows
 
 ## [Unreleased]
 
-Target: **v0.3.0** (desktop app + poor-network audio). Not yet tagged.
+## [0.3.0] - 2026-05-30
 
 ### Added
 - **Desktop app (Tauri 2 + Rust).** Wraps the SvelteKit client in a native
