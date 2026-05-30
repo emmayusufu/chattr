@@ -19,7 +19,6 @@
 	let room: RoomClient | null = null;
 
 	let mediaError: Writable<string | null> = writable(null);
-	let localStream: Writable<MediaStream | null> = writable(null);
 	let joinStatus: Writable<JoinStatus> = writable('connecting');
 
 	let roomId: string = data.roomId;
@@ -56,7 +55,10 @@
 				if (phase === 'loading') phase = 'lobby';
 			}
 		});
-		return () => { clearTimeout(timeout); unsubscribe(); };
+		return () => {
+			clearTimeout(timeout);
+			unsubscribe();
+		};
 	});
 
 	onDestroy(() => {
@@ -101,7 +103,6 @@
 			inviteToken
 		});
 		mediaError = room.mediaError;
-		localStream = room.localStream;
 		joinStatus = room.joinStatus;
 		room.start();
 	}

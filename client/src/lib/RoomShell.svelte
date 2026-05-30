@@ -3,6 +3,7 @@
 	import Sidebar from './Sidebar.svelte';
 	import ControlBar from './ControlBar.svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
+	import { audioBlocked, requestAudioUnlock } from './audio-unlock';
 	import type { RoomClient } from './RoomClient';
 
 	export let room: RoomClient;
@@ -22,12 +23,23 @@
 		isSharing,
 		isHost,
 		pendingJoiners,
-		chatEncrypted,
 		aiMessages,
 		aiPending,
 		transcript,
-		isTranscribing
+		isTranscribing,
+		dominantSpeaker
 	} = room;
+
+	// most-recent-speaker first, so active speakers float into the visible set
+	let speakingOrder: string[] = [];
+	$: if ($dominantSpeaker) {
+		speakingOrder = [$dominantSpeaker, ...speakingOrder.filter((id) => id !== $dominantSpeaker)];
+	}
+
+	function speakerRank(id: string): number {
+		const i = speakingOrder.indexOf(id);
+		return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+	}
 
 	let chatMessage = '';
 	let chatOpen = false;
@@ -52,21 +64,74 @@
 
 	const MAX_VISIBLE_THUMBS = 5;
 
-	type ThumbEntry = { id: string; stream: MediaStream | null; name: string; isLocal: boolean; isCamOff: boolean; mirror: boolean; micOff: boolean; tag: string | null };
+	type ThumbEntry = {
+		id: string;
+		stream: MediaStream | null;
+		name: string;
+		isLocal: boolean;
+		isCamOff: boolean;
+		mirror: boolean;
+		micOff: boolean;
+		tag: string | null;
+	};
 
 	$: allThumbs = (() => {
 		const list: ThumbEntry[] = [];
 		if ($localStream) {
-			list.push({ id: '_self', stream: $localStream, name: senderName, isLocal: true, isCamOff: $isCamOff, mirror: true, micOff: $isMuted, tag: 'you' });
+			list.push({
+				id: '_self',
+				stream: $localStream,
+				name: senderName,
+				isLocal: true,
+				isCamOff: $isCamOff,
+				mirror: true,
+				micOff: $isMuted,
+				tag: 'you'
+			});
 		}
-		for (const [pid, p] of Object.entries($participants)) {
-			list.push({ id: pid, stream: p.videoStream, name: p.name, isLocal: false, isCamOff: !p.videoStream, mirror: false, micOff: p.muted, tag: null });
-		}
-		return list;
+		const remotes = Object.entries($participants)
+			.sort(([a], [b]) => speakerRank(a) - speakerRank(b))
+			.map(([pid, p]) => ({
+				id: pid,
+				stream: p.videoStream,
+				name: p.name,
+				isLocal: false,
+				isCamOff: !p.videoStream,
+				mirror: false,
+				micOff: p.muted,
+				tag: null
+			}));
+		return [...list, ...remotes];
 	})();
 
 	$: visibleThumbs = allThumbs.slice(0, MAX_VISIBLE_THUMBS);
 	$: overflowCount = Math.max(0, allThumbs.length - MAX_VISIBLE_THUMBS);
+
+	// last-N: tell the server which remote cameras are actually rendered
+	$: renderedParticipantIds = (() => {
+		const ids = new Set<string>();
+		if (hasScreenShare) {
+			for (const t of visibleThumbs) if (t.id !== '_self') ids.add(t.id);
+			for (const [pid, p] of Object.entries($participants)) if (p.screenStream) ids.add(pid);
+		} else {
+			for (const pid of Object.keys($participants)) ids.add(pid);
+		}
+		return [...ids];
+	})();
+	$: room.setVisibleParticipants(renderedParticipantIds);
+
+	// preferredLayers by tile size: small tiles pull a lower simulcast layer
+	$: gridLayer = gridCols <= 2 ? 2 : gridCols === 3 ? 1 : 0;
+	$: participantLayers = (() => {
+		const m: Record<string, number> = {};
+		if (hasScreenShare) {
+			for (const t of visibleThumbs) if (t.id !== '_self') m[t.id] = 0;
+		} else {
+			for (const pid of Object.keys($participants)) m[pid] = gridLayer;
+		}
+		return m;
+	})();
+	$: room.setParticipantLayers(participantLayers);
 
 	let inviteToast = '';
 	let inviteToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -225,6 +290,10 @@
 		<div class="invite-toast" role="status">{inviteToast}</div>
 	{/if}
 
+	{#if $audioBlocked}
+		<button class="audio-unlock" on:click={requestAudioUnlock}>Tap to enable audio</button>
+	{/if}
+
 	{#if $reconnectFailed}
 		<div class="reconnect-banner reconnect-failed" role="alert">
 			<span>Connection lost. Please refresh.</span>
@@ -236,7 +305,6 @@
 			<span>Reconnecting…</span>
 		</div>
 	{/if}
-
 </div>
 
 <style>
@@ -430,6 +498,23 @@
 		box-shadow: 0 8px 24px -8px var(--accent-glow);
 		z-index: 35;
 		animation: -global-fade-up 0.2s ease;
+	}
+
+	.audio-unlock {
+		position: fixed;
+		bottom: 5.5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		padding: 0.6rem 1.1rem;
+		background: var(--accent);
+		color: var(--bg);
+		border: none;
+		border-radius: 999px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		box-shadow: 0 8px 24px -8px var(--accent-glow);
+		z-index: 36;
 	}
 
 	.reconnect-banner {

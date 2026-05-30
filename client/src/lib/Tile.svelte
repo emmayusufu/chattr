@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
 
 	export let stream: MediaStream | null = null;
@@ -47,6 +47,10 @@
 	class:is-local={isLocal}
 	class:is-cam-off={isCamOff}
 	class:is-screen={isScreen}
+	role="group"
+	aria-label={isScreen
+		? `${name} screen share`
+		: `${name}${micOff ? ', muted' : ''}${isCamOff ? ', camera off' : ''}`}
 	bind:this={tileEl}
 	style:aspect-ratio={isScreen && videoAR ? `${videoAR}` : undefined}
 >

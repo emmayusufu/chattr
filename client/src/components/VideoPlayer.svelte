@@ -1,11 +1,28 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { audioBlocked, audioUnlock } from '../lib/audio-unlock';
+
 	export let mediaStream: MediaStream | null;
 	export let muted = false;
 	export let mirror = false;
 
 	let videoElement: HTMLVideoElement | null = null;
 
-	$: if (videoElement) videoElement.srcObject = mediaStream;
+	function tryPlay() {
+		videoElement?.play().catch(() => {
+			if (!muted) audioBlocked.set(true);
+		});
+	}
+
+	$: if (videoElement && videoElement.srcObject !== mediaStream) {
+		videoElement.srcObject = mediaStream;
+		tryPlay();
+	}
+
+	// Retry when the user taps to unlock audio (inside the gesture).
+	$: if ($audioUnlock >= 0 && videoElement) tryPlay();
+
+	onMount(tryPlay);
 </script>
 
 <div>
