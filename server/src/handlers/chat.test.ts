@@ -1,27 +1,41 @@
 import { describe, expect, it, beforeEach } from "vitest";
 
-import { registerChatHandlers } from "../../../src/handlers/chat.js";
-import { messages } from "../../../src/rooms.js";
-import { makeFakeIo, makeFakeSocket, type FakeIo, type FakeSocket } from "../../helpers/fakes.js";
+import { registerChatHandlers } from "./chat.js";
+import { messages, rooms } from "../rooms.js";
+import {
+  makeFakeIo,
+  makeFakeSocket,
+  fakeRoom,
+  fakeUser,
+  type FakeIo,
+  type FakeSocket,
+} from "../test-helpers/fakes.js";
 
 describe("chat handlers", () => {
   let socket: FakeSocket;
   let io: FakeIo;
 
+  // Join the socket to a room as a member named Alice. Chat is members-only and
+  // the sender is the server-side identity, so membership has to exist for any
+  // message to be accepted.
+  function join(roomId: string, name = "Alice") {
+    rooms[roomId] = fakeRoom();
+    rooms[roomId].users["me"] = fakeUser(name);
+  }
+
   beforeEach(() => {
     for (const k of Object.keys(messages)) delete messages[k];
+    for (const k of Object.keys(rooms)) delete rooms[k];
     socket = makeFakeSocket();
+    socket.data.participantId = "me";
     io = makeFakeIo();
     registerChatHandlers(io as any, socket as any);
   });
 
   describe("send-chat-message", () => {
-    it("stores the message keyed by roomId with sender, message, and timestamp", () => {
-      socket.handlers["send-chat-message"]({
-        roomId: "r1",
-        message: "hello",
-        sender: "Alice",
-      });
+    it("stores the message keyed by roomId with the server-derived sender", () => {
+      join("r1");
+      socket.handlers["send-chat-message"]({ roomId: "r1", message: "hello" });
 
       expect(messages["r1"]).toHaveLength(1);
       expect(messages["r1"][0]).toMatchObject({ sender: "Alice", message: "hello" });
@@ -29,15 +43,18 @@ describe("chat handlers", () => {
     });
 
     it("appends to existing room messages without replacing them", () => {
-      socket.handlers["send-chat-message"]({ roomId: "r", message: "one", sender: "A" });
-      socket.handlers["send-chat-message"]({ roomId: "r", message: "two", sender: "B" });
+      join("r");
+      socket.handlers["send-chat-message"]({ roomId: "r", message: "one" });
+      socket.handlers["send-chat-message"]({ roomId: "r", message: "two" });
 
       expect(messages["r"].map((m) => m.message)).toEqual(["one", "two"]);
     });
 
     it("isolates messages between rooms", () => {
-      socket.handlers["send-chat-message"]({ roomId: "a", message: "x", sender: "A" });
-      socket.handlers["send-chat-message"]({ roomId: "b", message: "y", sender: "B" });
+      join("a");
+      join("b");
+      socket.handlers["send-chat-message"]({ roomId: "a", message: "x" });
+      socket.handlers["send-chat-message"]({ roomId: "b", message: "y" });
 
       expect(messages["a"]).toHaveLength(1);
       expect(messages["b"]).toHaveLength(1);
@@ -46,11 +63,8 @@ describe("chat handlers", () => {
     });
 
     it("broadcasts to the room over io.to(roomId).emit", () => {
-      socket.handlers["send-chat-message"]({
-        roomId: "room-x",
-        message: "hi all",
-        sender: "Alice",
-      });
+      join("room-x");
+      socket.handlers["send-chat-message"]({ roomId: "room-x", message: "hi all" });
 
       expect(io.to).toHaveBeenCalledWith("room-x");
       expect(io.emit).toHaveBeenCalledTimes(1);
@@ -59,12 +73,20 @@ describe("chat handlers", () => {
         expect.objectContaining({ sender: "Alice", message: "hi all" })
       );
     });
+
+    it("drops messages from a non-member", () => {
+      // No room/membership set up for "ghost".
+      socket.handlers["send-chat-message"]({ roomId: "ghost", message: "x" });
+      expect(messages["ghost"]).toBeUndefined();
+      expect(io.emit).not.toHaveBeenCalled();
+    });
   });
 
   describe("get-chat-history", () => {
     it("returns the stored messages for the requested room", () => {
-      socket.handlers["send-chat-message"]({ roomId: "r", message: "a", sender: "X" });
-      socket.handlers["send-chat-message"]({ roomId: "r", message: "b", sender: "Y" });
+      join("r");
+      socket.handlers["send-chat-message"]({ roomId: "r", message: "a" });
+      socket.handlers["send-chat-message"]({ roomId: "r", message: "b" });
 
       socket.handlers["get-chat-history"]("r");
 
@@ -77,49 +99,42 @@ describe("chat handlers", () => {
       );
     });
 
-    it("returns an empty array for a room with no messages", () => {
-      socket.handlers["get-chat-history"]("nobody");
+    it("returns an empty array for a member's room with no messages", () => {
+      join("empty");
+      socket.handlers["get-chat-history"]("empty");
       expect(socket.emit).toHaveBeenCalledWith("receive-chat-history", []);
+    });
+
+    it("ignores history requests from a non-member", () => {
+      socket.handlers["get-chat-history"]("nobody");
+      expect(socket.emit).not.toHaveBeenCalled();
     });
   });
 
   describe("input validation", () => {
     it("drops messages with an invalid roomId", () => {
-      socket.handlers["send-chat-message"]({
-        roomId: "invalid id with spaces",
-        message: "x",
-        sender: "A",
-      });
+      join("invalid id with spaces");
+      socket.handlers["send-chat-message"]({ roomId: "invalid id with spaces", message: "x" });
       expect(messages["invalid id with spaces"]).toBeUndefined();
       expect(io.emit).not.toHaveBeenCalled();
     });
 
     it("drops messages exceeding the length limit", () => {
+      join("r");
       const huge = "x".repeat(5000);
-      socket.handlers["send-chat-message"]({ roomId: "r", message: huge, sender: "A" });
+      socket.handlers["send-chat-message"]({ roomId: "r", message: huge });
       expect(messages["r"]).toBeUndefined();
     });
 
     it("drops empty messages", () => {
-      socket.handlers["send-chat-message"]({ roomId: "r", message: "   ", sender: "A" });
+      join("r");
+      socket.handlers["send-chat-message"]({ roomId: "r", message: "   " });
       expect(messages["r"]).toBeUndefined();
     });
 
     it("drops get-chat-history with an invalid roomId", () => {
       socket.handlers["get-chat-history"]({ not: "a string" });
       expect(socket.emit).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("sender", () => {
-    it("uses the client-supplied sender after validation", () => {
-      socket.handlers["send-chat-message"]({ roomId: "r", message: "hi", sender: "Guest" });
-      expect(messages["r"][0].sender).toBe("Guest");
-    });
-
-    it("falls back to 'guest' when the sender is missing", () => {
-      socket.handlers["send-chat-message"]({ roomId: "r", message: "hi" });
-      expect(messages["r"][0].sender).toBe("guest");
     });
   });
 });

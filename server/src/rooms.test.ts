@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 
-import { rooms, getAllProducersInRoom } from "../../src/rooms.js";
-import { fakeRoom, fakeUser } from "../helpers/fakes.js";
+import { rooms, getAllProducersInRoom } from "./rooms.js";
+import { fakeRoom, fakeUser } from "./test-helpers/fakes.js";
 
 describe("rooms", () => {
   beforeEach(() => {
@@ -36,9 +36,19 @@ describe("rooms", () => {
       it("flattens every producer with its owner's name and userId", () => {
         const result = getAllProducersInRoom("r");
         expect(result).toHaveLength(3);
-        expect(result).toContainEqual({ producerId: "p1", name: "Alice", userId: "u1" });
-        expect(result).toContainEqual({ producerId: "p2", name: "Alice", userId: "u1" });
-        expect(result).toContainEqual({ producerId: "p3", name: "Bob", userId: "u2" });
+        expect(result).toContainEqual({
+          producerId: "p1",
+          name: "Alice",
+          userId: "u1",
+          appData: {},
+        });
+        expect(result).toContainEqual({
+          producerId: "p2",
+          name: "Alice",
+          userId: "u1",
+          appData: {},
+        });
+        expect(result).toContainEqual({ producerId: "p3", name: "Bob", userId: "u2", appData: {} });
       });
 
       it("excludes producers belonging to the given user", () => {
