@@ -8,3 +8,6 @@ client/.env
 server/.env
 .DS_Store
 *.log
+.playwright-mcp
+client/test-results
+client/playwright-report
