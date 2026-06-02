@@ -18,6 +18,8 @@ All notable changes to chattr, newest first. Format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-02
+
 ### Added
 - **Low-data (audio-only) mode.** A control-bar toggle drops the call to audio
   only: it stops sending your camera and screen and pauses all inbound video
