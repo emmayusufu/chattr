@@ -18,6 +18,49 @@ All notable changes to chattr, newest first. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Speaking indicator** — the current dominant speaker's tile gets an accent
+  ring, using the existing per-room audio-level signal.
+- **Raise hand** — a control-bar toggle broadcasts a hand-raised state (tracked
+  per user so late joiners are accurate), shown as a badge on the raiser's tile.
+- **Notification sounds.** Gentle Web Audio chimes (generated in code, no audio
+  files) for someone waiting to be let in (host only), join, leave, incoming
+  chat, and hand-raise. Persisted on/off preference.
+- **Host migration.** When the host's connection is gone for good (grace
+  expired), the room is handed to the oldest still-connected participant instead
+  of ending for everyone, so a host dropping off a flaky network no longer kills
+  the meeting.
+
+### Removed
+- **Live minutes** (per-client Web Speech transcription). It mis-attributed
+  speech to the wrong person whenever anyone was on speakers, so it was more
+  misleading than useful. It will return as server-side transcription.
+
+### Fixed
+- **Resilient resync on poor networks.** The client periodically re-fetches the
+  authoritative producer list (and, for the host, the waiting-room list) and
+  fills gaps, so audio/video and pending join requests dropped by a flaky
+  connection self-heal instead of needing a manual rejoin.
+- **ICE recovers from `disconnected`, not just `failed`.** Mobile paths often
+  drop to `disconnected` (NAT rebind, radio handoff) and never reach `failed`;
+  the client now restarts ICE after a short grace so media stops freezing.
+- **Dropped pause/resume no longer leaves a tile black.** The client re-asserts
+  the desired video visibility each resync and the server only acts on a real
+  state change, so a lost resume packet self-heals instead of sticking.
+- **Faster, non-blocking resync.** The periodic re-fetch uses a short single
+  attempt (the loop is the retry) and consumes producers concurrently, so one
+  stalled stream can't delay everyone else's audio recovery.
+- **Reloads reclaim your seat.** Identity is persisted per-room in
+  sessionStorage, so a page reload resumes the same participant (reclaiming its
+  slot within the grace window) instead of leaving a ghost against the room cap.
+- Chat composer no longer opens oversized on first open. It was measuring the
+  textarea mid-panel-animation; it now grows only on real input.
+- **Leaving removes you immediately.** An explicit leave tells the server to
+  drop you at once, so your tile no longer lingers on others' screens for the
+  reconnect grace window.
+- **Audio prompt clears on any interaction.** The "tap to enable audio" prompt
+  now also unlocks on the next click or keypress anywhere, not just its button.
+
 ## [0.3.0] - 2026-05-30
 
 ### Added

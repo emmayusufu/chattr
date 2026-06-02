@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="chattr" width="380" />
+</p>
+
 # chattr
 
 A multi-user video calling app built on top of a custom WebRTC SFU. Rooms, video, audio, screen share, end-to-end encrypted chat, host-approved waiting rooms, one-time invite links. [mediasoup](https://mediasoup.org) under the hood.
