@@ -18,7 +18,7 @@
 	export let onCreateInvite: () => void;
 
 	export let onClose: (() => void) | null = null;
-	export let tab: string = 'chat';
+	export let tab = 'chat';
 </script>
 
 <aside class="sidebar">

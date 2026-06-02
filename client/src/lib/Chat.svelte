@@ -39,6 +39,7 @@
 		{#each messages as msg}
 			<div class="msg" class:is-self={msg.sender === senderName}>
 				<span class="msg-sender">{msg.sender}</span>
+				<!-- eslint-disable-next-line svelte/no-at-html-tags -- renderMarkdown sanitizes with DOMPurify -->
 				<div class="msg-body">{@html renderMarkdown(msg.message)}</div>
 			</div>
 		{/each}

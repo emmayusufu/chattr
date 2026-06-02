@@ -19,10 +19,26 @@ renderer.code = function ({ text, lang }) {
 marked.use({ gfm: true, breaks: true, renderer });
 
 const ALLOWED_TAGS = [
-	'p', 'br', 'strong', 'em', 'code', 'pre',
-	'ul', 'ol', 'li', 'blockquote',
-	'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-	'a', 'hr', 'del', 'span'
+	'p',
+	'br',
+	'strong',
+	'em',
+	'code',
+	'pre',
+	'ul',
+	'ol',
+	'li',
+	'blockquote',
+	'h1',
+	'h2',
+	'h3',
+	'h4',
+	'h5',
+	'h6',
+	'a',
+	'hr',
+	'del',
+	'span'
 ];
 
 const ALLOWED_ATTR = ['href', 'target', 'rel', 'class', 'title'];

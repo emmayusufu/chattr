@@ -6,11 +6,11 @@
 	export let isSharing: boolean;
 	export let isLowData = false;
 	export let chatOpen = false;
-	export let activeTab: string = 'chat';
+	export let activeTab = 'chat';
 	export let onToggleMute: () => void;
 	export let onToggleCam: () => void;
 	export let onToggleScreen: () => void;
-	export let onToggleLowData: () => void = () => {};
+	export let onToggleLowData: () => void;
 	export let isHandRaised = false;
 	export let onToggleHand: () => void;
 	export let onOpenTab: (tab: string) => void;

@@ -318,7 +318,7 @@
 					on:pointerdown={markUserScroll}
 					on:wheel={markUserScroll}
 				>
-					{#each carouselPages as page, i (page[0].key)}
+					{#each carouselPages as page (page[0].key)}
 						<div class="page-col">
 							{#each page as c (c.key)}
 								{#if c.kind === 'screen'}
