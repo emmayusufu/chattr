@@ -16,7 +16,7 @@ export function getAllProducersInRoom(roomId: string, excludeUserId = ""): Remot
   if (!room) return [];
 
   return Object.entries(room.users)
-    .filter(([userId]) => userId !== excludeUserId)
+    .filter(([userId, user]) => userId !== excludeUserId && !user.disconnected)
     .flatMap(([uid, user]) =>
       user.producers.map((producer) => ({
         producerId: producer.id,

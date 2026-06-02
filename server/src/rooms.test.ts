@@ -61,6 +61,12 @@ describe("rooms", () => {
         delete rooms["r"].users["u2"];
         expect(getAllProducersInRoom("r", "u1")).toEqual([]);
       });
+
+      it("excludes producers of a disconnected (grace-pending) user so a fresh joiner doesn't consume a ghost", () => {
+        rooms["r"].users["u2"].disconnected = true;
+        const result = getAllProducersInRoom("r");
+        expect(result.map((p) => p.producerId)).toEqual(["p1", "p2"]);
+      });
     });
   });
 });

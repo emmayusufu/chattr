@@ -9,6 +9,8 @@ export type FakeSocket = {
   on: (event: string, handler: Handler) => void;
   emit: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
+  join: ReturnType<typeof vi.fn>;
+  to: ReturnType<typeof vi.fn>;
   data: Record<string, unknown>;
 };
 
@@ -29,6 +31,8 @@ export function makeFakeSocket(id = "socket-1"): FakeSocket {
     },
     emit: vi.fn(),
     disconnect: vi.fn(),
+    join: vi.fn(),
+    to: vi.fn(() => ({ emit: vi.fn() })),
     data: {},
   };
 }
@@ -69,6 +73,7 @@ export function fakeUser(name: string, producerIds: string[] = []): User {
     consumers: [],
     transports: [],
     muted: false,
+    handRaised: false,
     socketId: "socket-" + name,
     sessionToken: "token-" + name,
     disconnected: false,

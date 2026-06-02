@@ -3,7 +3,7 @@ import { createServer } from "http";
 import { Server, type Socket } from "socket.io";
 import { registerChatHandlers } from "./handlers/chat.js";
 import { registerSignalingHandlers } from "./handlers/signaling.js";
-import { registerDisconnectHandler } from "./handlers/disconnect.js";
+import { registerDisconnectHandler, removeParticipant } from "./handlers/disconnect.js";
 import { rooms } from "./rooms.js";
 import { logger } from "./logger.js";
 import { config } from "./config.js";
@@ -22,6 +22,12 @@ const isMember = (roomId: string, participantId: string | undefined): boolean =>
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
+  // Ping more often so a silently-dead socket (a closed tab whose close frame
+  // never arrived) is noticed in ~30s instead of the ~45s default, which is what
+  // made a departed tile linger. pingTimeout stays generous so a laggy-but-alive
+  // mobile link isn't wrongly dropped mid-call.
+  pingInterval: 10_000,
+  pingTimeout: 20_000,
   cors: {
     origin: (origin, callback) => {
       const allowed = config.clientOrigin;
@@ -37,6 +43,21 @@ const io = new Server(httpServer, {
       }
     },
   },
+});
+
+app.post("/leave", express.text({ type: () => true, limit: "1kb" }), (req, res) => {
+  res.status(204).end();
+  let data: { roomId?: string; participantId?: string; sessionToken?: string };
+  try {
+    data = JSON.parse(typeof req.body === "string" && req.body ? req.body : "{}");
+  } catch {
+    return;
+  }
+  const roomId = validRoomId(data.roomId);
+  if (!roomId || !data.participantId || !data.sessionToken) return;
+  const user = rooms[roomId]?.users[data.participantId];
+  if (!user || user.sessionToken !== data.sessionToken) return;
+  removeParticipant(io, roomId, data.participantId);
 });
 
 io.on("connection", (socket: Socket) => {
@@ -56,30 +77,21 @@ io.on("connection", (socket: Socket) => {
   registerSignalingHandlers(io, socket);
   registerDisconnectHandler(io, socket);
 
-  socket.on("transcript-segment", (data: { roomId?: string; segment?: unknown }) => {
-    const roomId = validRoomId(data?.roomId);
-    if (!roomId || !data?.segment || !isMember(roomId, socket.data.participantId)) return;
-    socket.to(roomId).emit("transcript-segment", { segment: data.segment });
-  });
-
-  socket.on("start-transcription", (data: { roomId?: string }) => {
-    const roomId = validRoomId(data?.roomId);
-    if (!roomId || !isMember(roomId, socket.data.participantId)) return;
-    socket.to(roomId).emit("start-transcription");
-  });
-
-  socket.on("stop-transcription", (data: { roomId?: string }) => {
-    const roomId = validRoomId(data?.roomId);
-    if (!roomId || !isMember(roomId, socket.data.participantId)) return;
-    socket.to(roomId).emit("stop-transcription");
-  });
-
   socket.on("mute-state", (data: { roomId?: string; muted?: boolean }) => {
     const roomId = validRoomId(data?.roomId);
     const participantId = socket.data.participantId;
     if (!roomId || typeof data?.muted !== "boolean" || !isMember(roomId, participantId)) return;
     rooms[roomId].users[participantId].muted = data.muted;
     socket.to(roomId).emit("mute-state", { userId: participantId, muted: data.muted });
+  });
+
+  socket.on("hand-state", (data: { roomId?: string; handRaised?: boolean }) => {
+    const roomId = validRoomId(data?.roomId);
+    const participantId = socket.data.participantId;
+    if (!roomId || typeof data?.handRaised !== "boolean" || !isMember(roomId, participantId))
+      return;
+    rooms[roomId].users[participantId].handRaised = data.handRaised;
+    socket.to(roomId).emit("hand-state", { userId: participantId, handRaised: data.handRaised });
   });
 });
 

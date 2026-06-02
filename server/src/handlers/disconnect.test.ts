@@ -36,7 +36,8 @@ describe("disconnect handler (reconnect grace)", () => {
     expect(rooms["r"].users["u1"]).toBeDefined();
     expect(rooms["r"].users["u1"].disconnected).toBe(true);
     expect(rooms["r"].users["u1"].graceTimer).not.toBeNull();
-    expect(io.to).not.toHaveBeenCalled();
+    // The slot is held silently; nobody is told anything until the grace expires.
+    expect(io.emit).not.toHaveBeenCalledWith("user-left", expect.anything());
   });
 
   it("tears the user down when the grace window expires", () => {
@@ -63,6 +64,35 @@ describe("disconnect handler (reconnect grace)", () => {
     expect(io.emit).toHaveBeenCalledWith("user-left", { userId: "u1" });
   });
 
+  it("removes a page unload (clean client disconnect) at once but holds a network drop", () => {
+    setupRoom();
+
+    const unload = fakeUser("Unloader");
+    unload.socketId = "s-unload";
+    rooms["r"].users["u-unload"] = unload;
+    const flaky = fakeUser("Flaky");
+    flaky.socketId = "s-flaky";
+    rooms["r"].users["u-flaky"] = flaky;
+
+    const sUnload = makeFakeSocket("s-unload");
+    sUnload.data.participantId = "u-unload";
+    registerDisconnectHandler(makeFakeIo() as any, sUnload as any);
+    const sFlaky = makeFakeSocket("s-flaky");
+    sFlaky.data.participantId = "u-flaky";
+    registerDisconnectHandler(makeFakeIo() as any, sFlaky as any);
+
+    sUnload.handlers["disconnect"]("client namespace disconnect");
+    expect(rooms["r"].users["u-unload"]).toBeUndefined();
+    expect(rooms["r"].users["u-flaky"]).toBeDefined();
+
+    sFlaky.handlers["disconnect"]("transport close");
+    vi.advanceTimersByTime(4_000);
+    expect(rooms["r"].users["u-flaky"]).toBeDefined();
+
+    vi.advanceTimersByTime(12_000);
+    expect(rooms["r"]?.users["u-flaky"]).toBeUndefined();
+  });
+
   it("does not start a grace timer for a stale socket after reconnect", () => {
     const room = setupRoom();
     const user = fakeUser("Alice");
@@ -81,7 +111,7 @@ describe("disconnect handler (reconnect grace)", () => {
     expect(rooms["r"].users["u1"].graceTimer).toBeNull();
   });
 
-  it("ends the room for everyone when the host's grace expires", () => {
+  it("promotes the next connected participant when the host's grace expires", () => {
     const room = setupRoom();
     const host = fakeUser("Host");
     host.socketId = "sh";
@@ -101,9 +131,34 @@ describe("disconnect handler (reconnect grace)", () => {
     hostSocket.handlers["disconnect"]();
     vi.advanceTimersByTime(30_000);
 
+    expect(io.emit).toHaveBeenCalledWith("host-changed", { userId: "guest" });
+    expect(rooms["r"].hostUserId).toBe("guest");
+    expect(rooms["r"].users["guest"]).toBeDefined();
+    expect(guestSocket.disconnect).not.toHaveBeenCalled();
+    expect(guest.producers[0].close).not.toHaveBeenCalled();
+  });
+
+  it("ends the room when the host leaves and no one connected remains", () => {
+    const room = setupRoom();
+    const host = fakeUser("Host");
+    host.socketId = "sh";
+    const guest = fakeUser("Guest", ["pg"]);
+    guest.socketId = "sg";
+    guest.disconnected = true; // the only other user is itself mid-grace
+    room.hostUserId = "host";
+    room.users["host"] = host;
+    room.users["guest"] = guest;
+
+    const hostSocket = makeFakeSocket("sh");
+    hostSocket.data.participantId = "host";
+    const io = makeFakeIo();
+    io.register(makeFakeSocket("sg"));
+    registerDisconnectHandler(io as any, hostSocket as any);
+
+    hostSocket.handlers["disconnect"]();
+    vi.advanceTimersByTime(30_000);
+
     expect(io.emit).toHaveBeenCalledWith("host-left");
-    expect(guest.producers[0].close).toHaveBeenCalled();
-    expect(guestSocket.disconnect).toHaveBeenCalled();
     expect(rooms["r"]).toBeUndefined();
   });
 
@@ -127,6 +182,7 @@ describe("disconnect handler (reconnect grace)", () => {
     vi.advanceTimersByTime(30_000);
 
     expect(rooms["r"].users["u1"]).toBeDefined();
-    expect(io.emit).not.toHaveBeenCalled();
+    // The grace was canceled, so the user is never finalized/removed.
+    expect(io.emit).not.toHaveBeenCalledWith("user-left", expect.anything());
   });
 });

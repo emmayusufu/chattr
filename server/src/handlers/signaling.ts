@@ -18,14 +18,17 @@ async function admitUser(
 ): Promise<{
   routerRtpCapabilities: RtpCapabilities;
   transportOptions: any;
-  participants: { userId: string; name: string; muted: boolean }[];
+  participants: { userId: string; name: string; muted: boolean; handRaised: boolean }[];
 }> {
   const room = rooms[roomId];
-  const existingParticipants = Object.entries(room.users).map(([uid, u]) => ({
-    userId: uid,
-    name: u.name,
-    muted: u.muted,
-  }));
+  const existingParticipants = Object.entries(room.users)
+    .filter(([, u]) => !u.disconnected)
+    .map(([uid, u]) => ({
+      userId: uid,
+      name: u.name,
+      muted: u.muted,
+      handRaised: u.handRaised,
+    }));
   const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
   transport.setMaxIncomingBitrate(5_000_000).catch(() => {});
 
@@ -35,6 +38,7 @@ async function admitUser(
     consumers: [],
     transports: [{ transport, sender: true }],
     muted: false,
+    handRaised: false,
     socketId: socket.id,
     sessionToken,
     disconnected: false,
@@ -157,8 +161,13 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
             dtlsParameters: transport.dtlsParameters,
           },
           participants: Object.entries(room.users)
-            .filter(([uid]) => uid !== userId)
-            .map(([uid, u]) => ({ userId: uid, name: u.name, muted: u.muted })),
+            .filter(([uid, u]) => uid !== userId && !u.disconnected)
+            .map(([uid, u]) => ({
+              userId: uid,
+              name: u.name,
+              muted: u.muted,
+              handRaised: u.handRaised,
+            })),
           isHost: room.hostUserId === userId,
           reconnected: true,
         });
@@ -366,12 +375,40 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
   // The live producer set, fetched once the client is ready to receive, so no
   // producer slips through the join-setup window.
   socket.on("get-producers", (data: { roomId: string }, callback) => {
-    const user = rooms[data?.roomId]?.users[userId];
+    const room = rooms[data?.roomId];
+    const user = room?.users[userId];
     if (!user) {
       callback?.({ error: "not-ready" });
       return;
     }
-    callback({ producers: getAllProducersInRoom(data.roomId, userId) });
+    // Include the authoritative roster of currently-connected participants so the
+    // client can heal a missed user-left/joined on a flaky link, not just missed
+    // media. Grace-pending (disconnected) users are excluded: their tiles should
+    // clear, not linger.
+    callback({
+      producers: getAllProducersInRoom(data.roomId, userId),
+      participants: Object.entries(room.users)
+        .filter(([uid, u]) => uid !== userId && !u.disconnected)
+        .map(([uid, u]) => ({
+          userId: uid,
+          name: u.name,
+          muted: u.muted,
+          handRaised: u.handRaised,
+        })),
+    });
+  });
+
+  // Authoritative waiting-room list for the host to reconcile against, in case a
+  // pending-join-request push was dropped on a poor connection.
+  socket.on("get-pending", (data: { roomId: string }, callback) => {
+    const room = rooms[data?.roomId];
+    if (!room || room.hostUserId !== userId) {
+      callback?.({ error: "not-host" });
+      return;
+    }
+    callback({
+      pending: Object.entries(room.pending).map(([uid, p]) => ({ userId: uid, name: p.name })),
+    });
   });
 
   socket.on("create-receive-transport", async (data: { roomId: string }, callback) => {
@@ -475,11 +512,14 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
     }
   );
 
+  // Guard on the current state so the client can safely re-assert visibility on
+  // every reconcile tick: an unchanged consumer is a no-op (and no redundant
+  // keyframe), only a real transition acts.
   socket.on("pause-consumer", ({ roomId, producerId }: { roomId: string; producerId: string }) => {
     const user = rooms[roomId]?.users[userId];
     if (!user) return;
     for (const c of user.consumers) {
-      if (c.producerId === producerId) c.pause().catch(() => {});
+      if (c.producerId === producerId && !c.paused) c.pause().catch(() => {});
     }
   });
 
@@ -487,7 +527,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket) {
     const user = rooms[roomId]?.users[userId];
     if (!user) return;
     for (const c of user.consumers) {
-      if (c.producerId === producerId) {
+      if (c.producerId === producerId && c.paused) {
         c.resume()
           .then(() => c.requestKeyFrame())
           .catch(() => {});

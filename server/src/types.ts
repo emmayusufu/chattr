@@ -23,6 +23,7 @@ export type User = {
   consumers: Consumer[];
   transports: UserTransport[];
   muted: boolean;
+  handRaised: boolean;
   /**
    * Identity is the stable, client-generated participantId (the key in
    * room.users). socketId is the current live socket and changes on reconnect.
