@@ -1,24 +1,14 @@
 <script lang="ts">
 	import Chat from './Chat.svelte';
 	import People from './People.svelte';
-	import AiChat from './AiChat.svelte';
-	import Minutes from './Minutes.svelte';
 	import type { Participant, PendingJoiner, ChatMessage } from './RoomClient';
-	import type { TranscriptSegment } from './transcription';
 
 	export let messages: ChatMessage[];
 	export let chatMessage: string;
 	export let senderName: string;
 	export let onSend: () => void;
 
-	export let aiMessages: ChatMessage[] = [];
-	export let aiPending = false;
-	export let onSendAi: ((text: string) => void) | null = null;
-
-	export let transcript: TranscriptSegment[] = [];
-	export let isTranscribing = false;
 	export let isHost = false;
-	export let onToggleTranscription: () => void = () => {};
 
 	export let participants: Record<string, Participant>;
 	export let pendingJoiners: PendingJoiner[];
@@ -34,10 +24,7 @@
 <aside class="sidebar">
 	<header class="panel-header">
 		<span class="panel-title">
-			{tab === 'chat' ? 'Chat' : tab === 'ai' ? 'AI' : tab === 'people' ? 'People' : 'Minutes'}
-			{#if tab === 'minutes' && isTranscribing}
-				<span class="live-dot" />
-			{/if}
+			{tab === 'chat' ? 'Chat' : 'People'}
 		</span>
 		{#if onClose}
 			<button class="close-btn" on:click={onClose} aria-label="Close panel">
@@ -58,9 +45,7 @@
 
 	{#if tab === 'chat'}
 		<Chat bind:chatMessage {messages} {senderName} {onSend} />
-	{:else if tab === 'ai'}
-		<AiChat {aiMessages} {aiPending} {senderName} onSendAi={onSendAi ?? (() => {})} />
-	{:else if tab === 'people'}
+	{:else}
 		<People
 			{senderName}
 			{participants}
@@ -71,8 +56,6 @@
 			{onApproveAll}
 			{onCreateInvite}
 		/>
-	{:else}
-		<Minutes {transcript} {isTranscribing} {isHost} onToggle={onToggleTranscription} />
 	{/if}
 </aside>
 
@@ -111,6 +94,8 @@
 		justify-content: center;
 		width: 28px;
 		height: 28px;
+		min-width: 44px;
+		min-height: 44px;
 		background: transparent;
 		border: none;
 		color: var(--text-faint);
@@ -123,15 +108,5 @@
 	.close-btn:hover {
 		background: rgba(244, 237, 228, 0.08);
 		color: var(--text);
-	}
-
-	.live-dot {
-		display: inline-block;
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
-		background: var(--danger);
-		box-shadow: 0 0 6px rgba(209, 100, 100, 0.5);
-		animation: -global-pulse 1.4s infinite;
 	}
 </style>

@@ -29,12 +29,18 @@
 	const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
 
 	onMount(() => {
+		const onPageHide = () => {
+			room?.beaconLeave();
+			room?.leave(false);
+		};
+		window.addEventListener('pagehide', onPageHide);
+
 		const guest = sessionStorage.getItem('chattr-guest-name');
 		if (guest) {
 			senderName = guest;
 			startRoom();
 			phase = 'in-room';
-			return;
+			return () => window.removeEventListener('pagehide', onPageHide);
 		}
 
 		const timeout = setTimeout(() => {
@@ -47,6 +53,7 @@
 				isSignedIn = true;
 				if (phase === 'loading') {
 					senderName = user.displayName;
+					sessionStorage.setItem('chattr-guest-name', user.displayName);
 					startRoom();
 					phase = 'in-room';
 				}
@@ -56,13 +63,14 @@
 			}
 		});
 		return () => {
+			window.removeEventListener('pagehide', onPageHide);
 			clearTimeout(timeout);
 			unsubscribe();
 		};
 	});
 
 	onDestroy(() => {
-		room?.leave();
+		room?.leave(false);
 	});
 
 	async function signIn() {
@@ -77,6 +85,7 @@
 		const trimmed = nameInput.trim();
 		if (!trimmed) return;
 		senderName = trimmed;
+		sessionStorage.setItem('chattr-guest-name', trimmed);
 		startRoom();
 		phase = 'in-room';
 	}

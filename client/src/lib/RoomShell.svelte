@@ -3,7 +3,6 @@
 	import Sidebar from './Sidebar.svelte';
 	import ControlBar from './ControlBar.svelte';
 	import VideoPlayer from '../components/VideoPlayer.svelte';
-	import { audioBlocked, requestAudioUnlock } from './audio-unlock';
 	import type { RoomClient } from './RoomClient';
 
 	export let room: RoomClient;
@@ -19,18 +18,14 @@
 		reconnecting,
 		reconnectFailed,
 		isMuted,
+		isHandRaised,
 		isCamOff,
 		isSharing,
 		isHost,
 		pendingJoiners,
-		aiMessages,
-		aiPending,
-		transcript,
-		isTranscribing,
 		dominantSpeaker
 	} = room;
 
-	// most-recent-speaker first, so active speakers float into the visible set
 	let speakingOrder: string[] = [];
 	$: if ($dominantSpeaker) {
 		speakingOrder = [$dominantSpeaker, ...speakingOrder.filter((id) => id !== $dominantSpeaker)];
@@ -44,6 +39,7 @@
 	let chatMessage = '';
 	let chatOpen = false;
 	let sidebarTab = 'chat';
+	let winW = 1280;
 
 	function openTab(tab: string) {
 		if (chatOpen && sidebarTab === tab) {
@@ -58,10 +54,6 @@
 		$localScreenStream !== null ||
 		Object.values($participants).some((p) => p.screenStream !== null);
 
-	$: tileCount = ($localStream ? 1 : 0) + Object.keys($participants).length;
-	$: gridCols = Math.max(1, Math.ceil(Math.sqrt(tileCount)));
-	$: gridRows = Math.max(1, Math.ceil(tileCount / gridCols));
-
 	const MAX_VISIBLE_THUMBS = 5;
 
 	type ThumbEntry = {
@@ -72,6 +64,8 @@
 		isCamOff: boolean;
 		mirror: boolean;
 		micOff: boolean;
+		speaking: boolean;
+		handRaised: boolean;
 		tag: string | null;
 	};
 
@@ -86,6 +80,8 @@
 				isCamOff: $isCamOff,
 				mirror: true,
 				micOff: $isMuted,
+				speaking: $dominantSpeaker === room.participantId,
+				handRaised: $isHandRaised,
 				tag: 'you'
 			});
 		}
@@ -99,6 +95,8 @@
 				isCamOff: !p.videoStream,
 				mirror: false,
 				micOff: p.muted,
+				speaking: $dominantSpeaker === pid,
+				handRaised: p.handRaised,
 				tag: null
 			}));
 		return [...list, ...remotes];
@@ -107,27 +105,124 @@
 	$: visibleThumbs = allThumbs.slice(0, MAX_VISIBLE_THUMBS);
 	$: overflowCount = Math.max(0, allThumbs.length - MAX_VISIBLE_THUMBS);
 
-	// last-N: tell the server which remote cameras are actually rendered
+	$: isPhone = winW <= 640;
+	$: presenting = hasScreenShare;
+	$: mobileCarousel = isPhone;
+
+	$: speakerTileId =
+		$dominantSpeaker == null
+			? null
+			: $dominantSpeaker === room.participantId
+			? '_self'
+			: $dominantSpeaker;
+
+	// Carousel (mobile): swipe between pages. People ride three to a page so faces
+	// stay a sensible size and aren't cropped; a presentation takes its own full
+	// page. It auto-scrolls to the speaker's page but backs off after you swipe.
+	type CardEntry =
+		| { key: string; kind: 'screen'; name: string; stream: MediaStream | null; tag: string }
+		| { key: string; kind: 'tile'; thumb: ThumbEntry };
+
+	const PEOPLE_PER_PAGE = 3;
+	$: carouselPages = (() => {
+		const pages: CardEntry[][] = [];
+		if (presenting) {
+			if ($localScreenStream) {
+				pages.push([
+					{
+						key: 'screen-self',
+						kind: 'screen',
+						name: senderName,
+						stream: $localScreenStream,
+						tag: 'your screen'
+					}
+				]);
+			}
+			for (const [pid, p] of Object.entries($participants)) {
+				if (p.screenStream) {
+					pages.push([
+						{
+							key: 'scr-' + pid,
+							kind: 'screen',
+							name: p.name,
+							stream: p.screenStream,
+							tag: `${p.name}'s screen`
+						}
+					]);
+				}
+			}
+		}
+		for (let i = 0; i < allThumbs.length; i += PEOPLE_PER_PAGE) {
+			pages.push(
+				allThumbs
+					.slice(i, i + PEOPLE_PER_PAGE)
+					.map((t): CardEntry => ({ key: t.id, kind: 'tile', thumb: t }))
+			);
+		}
+		return pages;
+	})();
+
+	let pagerEl: HTMLDivElement | null = null;
+	let pageIndex = 0;
+	let lastUserScroll = 0;
+
+	function onPagerScroll() {
+		if (pagerEl) pageIndex = Math.round(pagerEl.scrollLeft / Math.max(1, pagerEl.clientWidth));
+	}
+	function markUserScroll() {
+		lastUserScroll = Date.now();
+	}
+
+	$: speakerPage = carouselPages.findIndex((pg) =>
+		pg.some((c) => c.kind === 'tile' && c.thumb.id === speakerTileId)
+	);
+	$: if (
+		mobileCarousel &&
+		pagerEl &&
+		speakerPage >= 0 &&
+		speakerPage !== pageIndex &&
+		Date.now() - lastUserScroll > 4000
+	) {
+		pagerEl.scrollTo({ left: speakerPage * pagerEl.clientWidth, behavior: 'smooth' });
+	}
+
+	// Desktop / tablet keep the even grid.
+	$: maxGridTiles = winW <= 1024 ? 6 : 12;
+	$: gridThumbs = allThumbs.slice(0, maxGridTiles);
+	$: gridOverflow = Math.max(0, allThumbs.length - maxGridTiles);
+	$: gridUnits = gridThumbs.length + (gridOverflow > 0 ? 1 : 0);
+	$: gridCols = Math.max(1, Math.ceil(Math.sqrt(gridUnits)));
+	$: gridRows = Math.max(1, Math.ceil(gridUnits / gridCols));
+
 	$: renderedParticipantIds = (() => {
 		const ids = new Set<string>();
-		if (hasScreenShare) {
+		if (mobileCarousel) {
+			for (const pg of carouselPages)
+				for (const c of pg) if (c.kind === 'tile' && !c.thumb.isLocal) ids.add(c.thumb.id);
+			for (const [pid, p] of Object.entries($participants)) if (p.screenStream) ids.add(pid);
+		} else if (hasScreenShare) {
 			for (const t of visibleThumbs) if (t.id !== '_self') ids.add(t.id);
 			for (const [pid, p] of Object.entries($participants)) if (p.screenStream) ids.add(pid);
 		} else {
-			for (const pid of Object.keys($participants)) ids.add(pid);
+			for (const t of gridThumbs) if (!t.isLocal) ids.add(t.id);
 		}
 		return [...ids];
 	})();
 	$: room.setVisibleParticipants(renderedParticipantIds);
 
-	// preferredLayers by tile size: small tiles pull a lower simulcast layer
-	$: gridLayer = gridCols <= 2 ? 2 : gridCols === 3 ? 1 : 0;
 	$: participantLayers = (() => {
 		const m: Record<string, number> = {};
-		if (hasScreenShare) {
-			for (const t of visibleThumbs) if (t.id !== '_self') m[t.id] = 0;
+		if (mobileCarousel) {
+			carouselPages.forEach((pg, i) => {
+				const hi = pg.length === 1 ? 2 : 1;
+				for (const c of pg)
+					if (c.kind === 'tile' && !c.thumb.isLocal) m[c.thumb.id] = i === pageIndex ? hi : 0;
+			});
+		} else if (hasScreenShare) {
+			for (const t of visibleThumbs) if (!t.isLocal) m[t.id] = 0;
 		} else {
-			for (const pid of Object.keys($participants)) m[pid] = gridLayer;
+			const layer = gridCols <= 2 ? 2 : gridCols === 3 ? 1 : 0;
+			for (const t of gridThumbs) if (!t.isLocal) m[t.id] = layer;
 		}
 		return m;
 	})();
@@ -168,15 +263,86 @@
 	}
 </script>
 
+<svelte:window bind:innerWidth={winW} />
+
 <div class="room-shell">
+	<button
+		class="people-btn"
+		class:active={chatOpen && sidebarTab === 'people'}
+		on:click={() => openTab('people')}
+		title="People"
+		aria-label="People"
+	>
+		<svg
+			viewBox="0 0 24 24"
+			width="18"
+			height="18"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path
+				d="M23 21v-2a4 4 0 0 0-3-3.87"
+			/><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg
+		>
+		<span class="people-count">{Object.keys($participants).length + 1}</span>
+		{#if $pendingJoiners.length > 0}
+			<span class="people-badge">{$pendingJoiners.length}</span>
+		{/if}
+	</button>
+
 	<main class="room-main" class:sidebar-open={chatOpen}>
 		<section
 			class="stage"
-			class:split={hasScreenShare}
+			class:split={hasScreenShare && !mobileCarousel}
+			class:carousel={mobileCarousel}
 			style:--per-row={gridCols}
 			style:--rows={gridRows}
 		>
-			{#if hasScreenShare}
+			{#if mobileCarousel}
+				<div
+					class="pager"
+					bind:this={pagerEl}
+					on:scroll={onPagerScroll}
+					on:pointerdown={markUserScroll}
+					on:wheel={markUserScroll}
+				>
+					{#each carouselPages as page, i (page[0].key)}
+						<div class="page-col">
+							{#each page as c (c.key)}
+								{#if c.kind === 'screen'}
+									<div class="card screen-card">
+										<Tile stream={c.stream} name={c.name} isScreen={true} tag={c.tag} />
+									</div>
+								{:else}
+									<div class="card">
+										<Tile
+											stream={c.thumb.stream}
+											name={c.thumb.name}
+											muted={c.thumb.isLocal}
+											mirror={c.thumb.mirror}
+											isLocal={c.thumb.isLocal}
+											isCamOff={c.thumb.isCamOff}
+											micOff={c.thumb.micOff}
+											speaking={c.thumb.speaking}
+											handRaised={c.thumb.handRaised}
+											tag={c.thumb.tag}
+										/>
+									</div>
+								{/if}
+							{/each}
+						</div>
+					{/each}
+				</div>
+				{#if carouselPages.length > 1}
+					<div class="dots">
+						{#each carouselPages as page, i (page[0].key)}
+							<span class="dot" class:active={i === pageIndex} />
+						{/each}
+					</div>
+				{/if}
+			{:else if hasScreenShare}
 				<div class="screens">
 					{#if $localScreenStream}
 						<Tile
@@ -210,6 +376,8 @@
 								isLocal={t.isLocal}
 								isCamOff={t.isCamOff}
 								micOff={t.micOff}
+								speaking={t.speaking}
+								handRaised={t.handRaised}
 								tag={t.tag}
 							/>
 						</div>
@@ -221,21 +389,23 @@
 					{/if}
 				</div>
 			{:else}
-				{#if $localStream}
+				{#each gridThumbs as t (t.id)}
 					<Tile
-						stream={$localStream}
-						name={senderName}
-						muted={true}
-						mirror={true}
-						isLocal={true}
-						isCamOff={$isCamOff}
-						micOff={$isMuted}
-						tag="you"
+						stream={t.stream}
+						name={t.name}
+						muted={t.isLocal}
+						mirror={t.mirror}
+						isLocal={t.isLocal}
+						isCamOff={t.isCamOff}
+						micOff={t.micOff}
+						speaking={t.speaking}
+						handRaised={t.handRaised}
+						tag={t.tag}
 					/>
-				{/if}
-				{#each Object.entries($participants) as [pid, p] (pid)}
-					<Tile stream={p.videoStream} name={p.name} isCamOff={!p.videoStream} micOff={p.muted} />
 				{/each}
+				{#if gridOverflow > 0}
+					<div class="grid-overflow"><span>+{gridOverflow}</span></div>
+				{/if}
 			{/if}
 		</section>
 
@@ -246,12 +416,6 @@
 				messages={$messages}
 				{senderName}
 				onSend={sendMessage}
-				aiMessages={$aiMessages}
-				aiPending={$aiPending}
-				onSendAi={(text) => room.askAiPrivate(text)}
-				transcript={$transcript}
-				isTranscribing={$isTranscribing}
-				onToggleTranscription={() => room.toggleTranscription()}
 				participants={$participants}
 				pendingJoiners={$pendingJoiners}
 				isHost={$isHost}
@@ -278,20 +442,17 @@
 		isSharing={$isSharing}
 		{chatOpen}
 		activeTab={sidebarTab}
-		pendingCount={$pendingJoiners.length}
 		onToggleMute={() => room.toggleMute()}
 		onToggleCam={() => room.toggleCam()}
 		onToggleScreen={() => room.toggleScreen()}
+		isHandRaised={$isHandRaised}
+		onToggleHand={() => room.toggleHand()}
 		onOpenTab={openTab}
 		{onLeave}
 	/>
 
 	{#if inviteToast}
 		<div class="invite-toast" role="status">{inviteToast}</div>
-	{/if}
-
-	{#if $audioBlocked}
-		<button class="audio-unlock" on:click={requestAudioUnlock}>Tap to enable audio</button>
 	{/if}
 
 	{#if $reconnectFailed}
@@ -462,6 +623,20 @@
 		height: 130px;
 	}
 
+	.grid-overflow {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--surface-2);
+		color: var(--text);
+		font-weight: 600;
+		border-radius: 10px;
+		flex: 0 1 auto;
+		width: calc((100% - (var(--per-row, 1) - 1) * 0.5rem) / var(--per-row, 1));
+		max-height: calc((100% - (var(--rows, 1) - 1) * 0.5rem) / var(--rows, 1));
+		min-width: 0;
+	}
+
 	@media (max-width: 640px) {
 		.stage.split {
 			grid-template-columns: minmax(0, 1fr);
@@ -484,9 +659,66 @@
 		display: none;
 	}
 
+	.people-btn {
+		position: fixed;
+		top: max(0.75rem, env(safe-area-inset-top));
+		right: max(0.75rem, env(safe-area-inset-right));
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		height: 40px;
+		padding: 0 0.7rem;
+		background: rgba(20, 16, 12, 0.7);
+		backdrop-filter: blur(12px);
+		color: var(--text);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+		z-index: 25;
+	}
+
+	.people-btn:hover {
+		background: var(--surface-3);
+		border-color: var(--border-strong);
+	}
+
+	.people-btn.active {
+		background: var(--accent);
+		color: var(--bg);
+		border-color: var(--accent);
+		backdrop-filter: none;
+	}
+
+	.people-count {
+		min-width: 1ch;
+		text-align: center;
+	}
+
+	.people-badge {
+		min-width: 18px;
+		height: 18px;
+		padding: 0 5px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.65rem;
+		font-weight: 700;
+		background: var(--accent);
+		color: var(--bg);
+		border-radius: 999px;
+	}
+
+	.people-btn.active .people-badge {
+		background: var(--bg);
+		color: var(--accent);
+	}
+
 	.invite-toast {
 		position: fixed;
-		top: 1rem;
+		top: max(1rem, env(safe-area-inset-top));
 		left: 50%;
 		transform: translateX(-50%);
 		padding: 0.55rem 1rem;
@@ -500,26 +732,9 @@
 		animation: -global-fade-up 0.2s ease;
 	}
 
-	.audio-unlock {
-		position: fixed;
-		bottom: 5.5rem;
-		left: 50%;
-		transform: translateX(-50%);
-		padding: 0.6rem 1.1rem;
-		background: var(--accent);
-		color: var(--bg);
-		border: none;
-		border-radius: 999px;
-		font-size: 0.85rem;
-		font-weight: 600;
-		cursor: pointer;
-		box-shadow: 0 8px 24px -8px var(--accent-glow);
-		z-index: 36;
-	}
-
 	.reconnect-banner {
 		position: fixed;
-		top: 1rem;
+		top: max(1rem, env(safe-area-inset-top));
 		left: 50%;
 		transform: translateX(-50%);
 		display: inline-flex;
@@ -569,17 +784,91 @@
 
 	@media (max-width: 640px) {
 		.stage {
-			padding: 0.25rem;
-			gap: 0.25rem;
+			padding: 0.3rem;
+			gap: 0.3rem;
 		}
 
-		.stage:not(.split) {
-			overflow-y: auto;
+		.stage.carousel {
+			display: block;
+			padding: 0;
+			position: relative;
+			overflow: hidden;
 		}
 
-		.stage:not(.split) > :global(.tile) {
+		.pager {
+			height: 100%;
+			display: flex;
+			overflow-x: auto;
+			overflow-y: hidden;
+			scroll-snap-type: x mandatory;
+			scrollbar-width: none;
+		}
+
+		.pager::-webkit-scrollbar {
+			display: none;
+		}
+
+		.page-col {
+			flex: 0 0 100%;
 			width: 100%;
-			max-height: none;
+			height: 100%;
+			display: flex;
+			flex-direction: column;
+			gap: 0.3rem;
+			padding: 0.3rem;
+			scroll-snap-align: start;
+			scroll-snap-stop: always;
+		}
+
+		.card {
+			position: relative;
+			flex: 1;
+			min-height: 0;
+			border-radius: 14px;
+			overflow: hidden;
+			background: var(--bg-deep);
+		}
+
+		.card :global(.tile) {
+			width: 100%;
+			height: 100%;
+			aspect-ratio: auto !important;
+			border-radius: 14px;
+			background: var(--bg-deep);
+		}
+
+		/* Camera fills the card so the speaking ring hugs the video; a shared
+		   screen keeps its letterboxed contain (Tile default) so nothing is cut. */
+		.screen-card :global(video) {
+			object-fit: contain !important;
+		}
+
+		.dots {
+			position: absolute;
+			bottom: 0.6rem;
+			left: 50%;
+			transform: translateX(-50%);
+			display: flex;
+			gap: 0.35rem;
+			padding: 0.3rem 0.5rem;
+			background: rgba(10, 8, 7, 0.45);
+			backdrop-filter: blur(8px);
+			border-radius: 999px;
+			z-index: 5;
+		}
+
+		.dot {
+			width: 6px;
+			height: 6px;
+			border-radius: 50%;
+			background: rgba(244, 237, 228, 0.35);
+			transition: background 0.2s, width 0.2s;
+		}
+
+		.dot.active {
+			width: 16px;
+			border-radius: 3px;
+			background: var(--accent);
 		}
 
 		.room-main.sidebar-open {

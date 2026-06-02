@@ -5,11 +5,9 @@ import type { RtpCapabilities } from 'mediasoup-client/lib/RtpParameters';
 
 import { emitWithTimeout, withRetry } from './socket-utils.js';
 import { describeMediaError } from './media-errors.js';
-import type { TranscriptSegment } from './transcription.js';
 import { Denoiser } from './denoise.js';
+import { playJoin, playLeave, playHand, playWaiting } from './sounds.js';
 import { ChatController } from './chat-controller.js';
-import { AiController } from './ai-controller.js';
-import { TranscriptionController } from './transcription-controller.js';
 
 export type Participant = {
 	name: string;
@@ -17,6 +15,7 @@ export type Participant = {
 	audioStream: MediaStream | null;
 	screenStream: MediaStream | null;
 	muted: boolean;
+	handRaised: boolean;
 };
 
 export type ChatMessage = { sender: string; message: string };
@@ -28,7 +27,7 @@ type RemoteProducerInfo = { producerId: string; name: string; userId: string };
 type AdmissionAck = {
 	routerRtpCapabilities: RtpCapabilities;
 	transportOptions: any;
-	participants: { userId: string; name: string; muted?: boolean }[];
+	participants: { userId: string; name: string; muted?: boolean; handRaised?: boolean }[];
 	isHost?: boolean;
 };
 
@@ -42,8 +41,14 @@ const audioCodecOptions = {
 };
 const iceServers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 if (import.meta.env.VITE_TURN_URL) {
+	// Comma-separated so a full TURN config (udp + tcp + turns:443) drops in with
+	// one credential pair, which is what hostile networks need.
+	const turnUrls = (import.meta.env.VITE_TURN_URL as string)
+		.split(',')
+		.map((u) => u.trim())
+		.filter(Boolean);
 	iceServers.push({
-		urls: import.meta.env.VITE_TURN_URL,
+		urls: turnUrls,
 		username: import.meta.env.VITE_TURN_USERNAME,
 		credential: import.meta.env.VITE_TURN_CREDENTIAL
 	});
@@ -70,6 +75,7 @@ export class RoomClient {
 	readonly reconnectFailed: Writable<boolean> = writable(false);
 	readonly mediaError: Writable<string | null> = writable(null);
 	readonly isMuted: Writable<boolean> = writable(false);
+	readonly isHandRaised: Writable<boolean> = writable(false);
 	readonly isCamOff: Writable<boolean> = writable(false);
 	readonly isSharing: Writable<boolean> = writable(false);
 	readonly isHost: Writable<boolean> = writable(false);
@@ -79,10 +85,6 @@ export class RoomClient {
 
 	readonly messages: Writable<ChatMessage[]>;
 	readonly chatEncrypted: Writable<boolean>;
-	readonly aiMessages: Writable<ChatMessage[]>;
-	readonly aiPending: Writable<boolean>;
-	readonly transcript: Writable<TranscriptSegment[]>;
-	readonly isTranscribing: Writable<boolean>;
 
 	private readonly roomId: string;
 	readonly name: string;
@@ -90,14 +92,14 @@ export class RoomClient {
 	private readonly inviteToken?: string;
 	/**
 	 * participantId is the public room key; sessionToken is the secret that lets
-	 * a dropped socket resume in place on reconnect instead of rejoining fresh.
+	 * a dropped socket resume in place on reconnect. Persisted per-room in
+	 * sessionStorage so a page reload (common on flaky mobile) resumes the SAME
+	 * identity and reclaims its slot instead of ghosting against the room cap.
 	 */
-	private readonly participantId = crypto.randomUUID();
-	private readonly sessionToken = crypto.randomUUID();
+	readonly participantId: string;
+	private readonly sessionToken: string;
 
 	private readonly chat: ChatController;
-	private readonly ai: AiController;
-	private readonly transcription: TranscriptionController;
 
 	private socket: Socket | null = null;
 	private device: mediasoupClient.Device | null = null;
@@ -121,9 +123,12 @@ export class RoomClient {
 	private producerIsScreen: Record<string, boolean> = {};
 	private consumedProducerIds = new Set<string>();
 	private pausedVideoProducers = new Set<string>();
+	private visibleOwners = new Set<string>();
 	private sentVideoLayers = new Map<string, number>();
 	private denoiser: Denoiser | null = null;
 	private denoiseEnabled = true;
+	private reconcileTimer: ReturnType<typeof setInterval> | null = null;
+	private reconciling = false;
 
 	private async producedAudioTrack(rawTrack: MediaStreamTrack): Promise<MediaStreamTrack> {
 		if (!this.denoiseEnabled) return rawTrack;
@@ -136,16 +141,24 @@ export class RoomClient {
 		this.name = name;
 		this.serverUrl = serverUrl;
 		this.inviteToken = inviteToken;
+		this.participantId = this.stableId(`chattr.pid.${roomId}`);
+		this.sessionToken = this.stableId(`chattr.tok.${roomId}`);
 
 		this.chat = new ChatController(roomId, name, chatSecret);
-		this.ai = new AiController(name);
-		this.transcription = new TranscriptionController(roomId, name);
 		this.messages = this.chat.messages;
 		this.chatEncrypted = this.chat.encrypted;
-		this.aiMessages = this.ai.messages;
-		this.aiPending = this.ai.pending;
-		this.transcript = this.transcription.transcript;
-		this.isTranscribing = this.transcription.isTranscribing;
+	}
+
+	private stableId(key: string): string {
+		try {
+			const existing = sessionStorage.getItem(key);
+			if (existing) return existing;
+			const id = crypto.randomUUID();
+			sessionStorage.setItem(key, id);
+			return id;
+		} catch {
+			return crypto.randomUUID();
+		}
 	}
 
 	async start(): Promise<void> {
@@ -227,7 +240,8 @@ export class RoomClient {
 				videoStream: null,
 				audioStream: null,
 				screenStream: null,
-				muted: !!p.muted
+				muted: !!p.muted,
+				handRaised: !!p.handRaised
 			};
 		}
 		this.participants.set(initial);
@@ -286,34 +300,101 @@ export class RoomClient {
 
 		this.chat.requestHistory();
 		this.emitMuteState();
+		this.emitHandState();
 		this.hasJoined = true;
 		this.joinStatus.set('admitted');
+		this.startReconcileLoop();
 	}
 
-	private async fetchAndConsumeProducers(): Promise<void> {
+	private async fetchAndConsumeProducers(quick = false): Promise<void> {
+		type ProducersAck = {
+			producers?: RemoteProducerInfo[];
+			participants?: { userId: string; name: string; muted: boolean; handRaised: boolean }[];
+		};
 		let producers: RemoteProducerInfo[] = [];
 		try {
-			const res = await withRetry(() =>
-				emitWithTimeout<{ producers?: RemoteProducerInfo[] }>(this.socket, 'get-producers', {
-					roomId: this.roomId
-				})
-			);
+			// quick = periodic reconcile: one short attempt, the 5s loop is the retry.
+			// Otherwise (join/rejoin) retry harder since there's no loop behind it yet.
+			const res = quick
+				? await emitWithTimeout<ProducersAck>(
+						this.socket,
+						'get-producers',
+						{ roomId: this.roomId },
+						3000
+				  )
+				: await withRetry(() =>
+						emitWithTimeout<ProducersAck>(this.socket, 'get-producers', {
+							roomId: this.roomId
+						})
+				  );
 			producers = res.producers ?? [];
+			// Only heal the roster on the periodic loop; the join/rejoin ack already
+			// set it, and pruning mid-join could race a just-admitted peer.
+			if (quick && res.participants) this.reconcileParticipants(res.participants);
 		} catch (err) {
-			// Don't hang the join if the snapshot fails. new-producer events and the
-			// next reconnect's refetch fill in any peers we miss here.
 			console.error('get-producers failed:', err);
 			return;
 		}
-		for (const { producerId, name, userId } of producers) {
-			this.producerToUser[producerId] = userId;
-			this.upsertParticipant(userId, name);
-			await this.consume(producerId);
+		// Consume concurrently so one stalled transport/consume can't starve the
+		// rest (e.g. a struggling video producer blocking everyone's audio).
+		await Promise.allSettled(
+			producers.map(({ producerId, name, userId }) => {
+				this.producerToUser[producerId] = userId;
+				this.upsertParticipant(userId, name);
+				return this.consume(producerId);
+			})
+		);
+	}
+
+	// Poor networks drop one-shot events (new-producer, pending-join-request), so
+	// don't rely on them alone: periodically re-fetch the authoritative state and
+	// fill gaps. Missed audio/video self-heals and the host's waiting list stays
+	// accurate without anyone having to rejoin. consume() is idempotent.
+	private startReconcileLoop(): void {
+		if (this.reconcileTimer) return;
+		this.reconcileTimer = setInterval(() => void this.reconcile(), 5000);
+	}
+
+	private async reconcile(): Promise<void> {
+		if (!this.hasJoined || this.reconciling) return;
+		if (typeof document !== 'undefined' && document.hidden) return;
+		this.reconciling = true;
+		try {
+			await this.fetchAndConsumeProducers(true);
+			this.reassertVisibility();
+			if (this.snapshot(this.isHost)) await this.fetchPending();
+		} finally {
+			this.reconciling = false;
+		}
+	}
+
+	private async fetchPending(): Promise<void> {
+		try {
+			const { pending } = await emitWithTimeout<{ pending?: PendingJoiner[] }>(
+				this.socket,
+				'get-pending',
+				{ roomId: this.roomId }
+			);
+			if (pending) this.pendingJoiners.set(pending);
+		} catch {
+			/* transient; the next tick retries */
 		}
 	}
 
 	private emitMuteState(): void {
 		this.socket?.emit('mute-state', { roomId: this.roomId, muted: this.snapshot(this.isMuted) });
+	}
+
+	private emitHandState(): void {
+		this.socket?.emit('hand-state', {
+			roomId: this.roomId,
+			handRaised: this.snapshot(this.isHandRaised)
+		});
+	}
+
+	toggleHand(): void {
+		this.isHandRaised.update((v) => !v);
+		this.emitHandState();
 	}
 
 	/**
@@ -323,10 +404,10 @@ export class RoomClient {
 	 */
 	setVisibleParticipants(visibleUserIds: string[]): void {
 		if (!this.socket) return;
-		const visible = new Set(visibleUserIds);
+		this.visibleOwners = new Set(visibleUserIds);
 		for (const [producerId, owner] of Object.entries(this.producerToUser)) {
 			if (this.producerKinds[producerId] !== 'video' || this.producerIsScreen[producerId]) continue;
-			const shouldPause = !visible.has(owner);
+			const shouldPause = !this.visibleOwners.has(owner);
 			const isPaused = this.pausedVideoProducers.has(producerId);
 			if (shouldPause && !isPaused) {
 				this.socket.emit('pause-consumer', { roomId: this.roomId, producerId });
@@ -335,6 +416,24 @@ export class RoomClient {
 				this.socket.emit('resume-consumer', { roomId: this.roomId, producerId });
 				this.pausedVideoProducers.delete(producerId);
 			}
+		}
+	}
+
+	// Re-send the desired pause/resume for every video producer so a dropped
+	// pause/resume packet self-heals (a lost resume otherwise leaves a visible
+	// tile black forever). The server only acts on an actual state change, so
+	// re-asserting an unchanged state is a no-op with no keyframe spam.
+	private reassertVisibility(): void {
+		if (!this.socket) return;
+		for (const [producerId, owner] of Object.entries(this.producerToUser)) {
+			if (this.producerKinds[producerId] !== 'video' || this.producerIsScreen[producerId]) continue;
+			const shouldPause = !this.visibleOwners.has(owner);
+			this.socket.emit(shouldPause ? 'pause-consumer' : 'resume-consumer', {
+				roomId: this.roomId,
+				producerId
+			});
+			if (shouldPause) this.pausedVideoProducers.add(producerId);
+			else this.pausedVideoProducers.delete(producerId);
 		}
 	}
 
@@ -368,6 +467,7 @@ export class RoomClient {
 			this.pendingJoiners.update((list) =>
 				list.some((p) => p.userId === req.userId) ? list : [...list, req]
 			);
+			playWaiting();
 		});
 
 		this.socket.on('pending-canceled', ({ userId }: { userId: string }) => {
@@ -385,6 +485,12 @@ export class RoomClient {
 
 		this.socket.on('host-left', () => {
 			this.joinStatus.set('host-left');
+		});
+
+		this.socket.on('host-changed', ({ userId }: { userId: string }) => {
+			const isMe = userId === this.participantId;
+			this.isHost.set(isMe);
+			if (isMe) void this.fetchPending();
 		});
 	}
 
@@ -428,15 +534,37 @@ export class RoomClient {
 		return value;
 	}
 
-	async leave(): Promise<void> {
+	async leave(intentional = true): Promise<void> {
 		this.hasJoined = false;
-		this.transcription.stop();
+		if (this.reconcileTimer) clearInterval(this.reconcileTimer);
+		this.reconcileTimer = null;
 		this.denoiser?.cleanup();
 		this.denoiser = null;
 		this.closeTransports();
 		this.cameraStream?.getTracks().forEach((t) => t.stop());
 		this.screenStream?.getTracks().forEach((t) => t.stop());
+		if (intentional && this.socket) {
+			try {
+				await emitWithTimeout(this.socket, 'leave-room', { roomId: this.roomId }, 2000);
+			} catch {
+				/* server unreachable: disconnect anyway */
+			}
+		}
 		this.socket?.disconnect();
+	}
+
+	beaconLeave(): void {
+		if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return;
+		const body = JSON.stringify({
+			roomId: this.roomId,
+			participantId: this.participantId,
+			sessionToken: this.sessionToken
+		});
+		try {
+			navigator.sendBeacon(`${this.serverUrl}/leave`, new Blob([body], { type: 'text/plain' }));
+		} catch {
+			/* best effort */
+		}
 	}
 
 	private closeTransports(): void {
@@ -572,23 +700,14 @@ export class RoomClient {
 			screenTrack.onended = () => this.stopShare();
 		} catch (err) {
 			console.error('Screen share failed:', err);
-			if (this.screenStream) {
-				this.screenStream.getTracks().forEach((t) => t.stop());
-				this.screenStream = null;
-			}
+			// Fully tear down the half-built share so the next click starts clean
+			// instead of tripping over a leftover transport or producer.
+			await this.stopShare();
 		}
 	}
 
 	async sendMessage(text: string): Promise<void> {
 		await this.chat.send(text);
-	}
-
-	async askAiPrivate(text: string): Promise<void> {
-		await this.ai.ask(text);
-	}
-
-	toggleTranscription(): void {
-		this.transcription.toggle();
 	}
 
 	private async stopShare(): Promise<void> {
@@ -679,8 +798,20 @@ export class RoomClient {
 	}
 
 	private wireIceRecovery(transport: mediasoupClient.types.Transport): void {
+		let graceTimer: ReturnType<typeof setTimeout> | null = null;
 		transport.on('connectionstatechange', (state) => {
-			if (state === 'failed') void this.restartIce(transport);
+			if (graceTimer) {
+				clearTimeout(graceTimer);
+				graceTimer = null;
+			}
+			if (state === 'failed') {
+				void this.restartIce(transport);
+			} else if (state === 'disconnected') {
+				// Mobile paths drop to 'disconnected' on NAT rebinds/handoffs and often
+				// never reach 'failed'. Give it a moment to recover on its own, then
+				// force an ICE restart so media doesn't silently freeze.
+				graceTimer = setTimeout(() => void this.restartIce(transport), 2500);
+			}
 		});
 	}
 
@@ -703,10 +834,10 @@ export class RoomClient {
 		if (!this.socket) return;
 
 		this.chat.attach(this.socket);
-		this.transcription.attach(this.socket);
 
 		this.socket.on('user-joined', ({ userId, name }: { userId: string; name: string }) => {
 			this.upsertParticipant(userId, name);
+			playJoin();
 		});
 
 		this.socket.on('user-left', ({ userId }: { userId: string }) => {
@@ -715,6 +846,7 @@ export class RoomClient {
 				delete next[userId];
 				return next;
 			});
+			playLeave();
 		});
 
 		this.socket.on(
@@ -766,6 +898,17 @@ export class RoomClient {
 			});
 		});
 
+		this.socket.on(
+			'hand-state',
+			({ userId, handRaised }: { userId: string; handRaised: boolean }) => {
+				this.participants.update((p) => {
+					if (!p[userId]) return p;
+					return { ...p, [userId]: { ...p[userId], handRaised } };
+				});
+				if (handRaised) playHand();
+			}
+		);
+
 		this.socket.on('dominant-speaker', ({ userId }: { userId: string | null }) => {
 			this.dominantSpeaker.set(userId);
 		});
@@ -798,7 +941,7 @@ export class RoomClient {
 				emitWithTimeout<{
 					routerRtpCapabilities?: RtpCapabilities;
 					transportOptions?: any;
-					participants?: { userId: string; name: string; muted?: boolean }[];
+					participants?: { userId: string; name: string; muted?: boolean; handRaised?: boolean }[];
 					isHost?: boolean;
 					status?: 'pending';
 					error?: string;
@@ -828,7 +971,7 @@ export class RoomClient {
 
 			const { transportOptions, participants: existing } = rejoinAck as {
 				transportOptions: any;
-				participants: { userId: string; name: string; muted?: boolean }[];
+				participants: { userId: string; name: string; muted?: boolean; handRaised?: boolean }[];
 			};
 
 			const next: Record<string, Participant> = {};
@@ -838,7 +981,8 @@ export class RoomClient {
 					videoStream: null,
 					audioStream: null,
 					screenStream: null,
-					muted: !!p.muted
+					muted: !!p.muted,
+					handRaised: !!p.handRaised
 				};
 			}
 			this.participants.set(next);
@@ -895,6 +1039,7 @@ export class RoomClient {
 
 			this.chat.requestHistory();
 			this.emitMuteState();
+			this.emitHandState();
 			this.reconnecting.set(false);
 		} catch (err) {
 			console.error('Reconnect failed:', err);
@@ -1007,8 +1152,45 @@ export class RoomClient {
 			if (p[userId]) return p;
 			return {
 				...p,
-				[userId]: { name, videoStream: null, audioStream: null, screenStream: null, muted: false }
+				[userId]: {
+					name,
+					videoStream: null,
+					audioStream: null,
+					screenStream: null,
+					muted: false,
+					handRaised: false
+				}
 			};
+		});
+	}
+
+	// Reconcile the local roster against the server's authoritative list of
+	// connected peers: prune anyone the server no longer has (a missed user-left),
+	// add anyone we're missing (a missed user-joined), and sync mute/hand state.
+	// Stream references are preserved so video doesn't reattach.
+	private reconcileParticipants(
+		list: { userId: string; name: string; muted: boolean; handRaised: boolean }[]
+	): void {
+		this.participants.update((cur) => {
+			let changed = Object.keys(cur).length !== list.length;
+			const next: Record<string, Participant> = {};
+			for (const p of list) {
+				const ex = cur[p.userId];
+				if (!ex || ex.name !== p.name || ex.muted !== p.muted || ex.handRaised !== p.handRaised) {
+					changed = true;
+				}
+				next[p.userId] = ex
+					? { ...ex, name: p.name, muted: p.muted, handRaised: p.handRaised }
+					: {
+							name: p.name,
+							videoStream: null,
+							audioStream: null,
+							screenStream: null,
+							muted: p.muted,
+							handRaised: p.handRaised
+					  };
+			}
+			return changed ? next : cur;
 		});
 	}
 

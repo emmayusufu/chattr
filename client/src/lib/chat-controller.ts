@@ -1,6 +1,7 @@
 import { writable, type Writable } from 'svelte/store';
 import type { Socket } from 'socket.io-client';
 import { ChatRatchet, deriveRootKey } from './chat-crypto.js';
+import { playMessage } from './sounds.js';
 import type { ChatMessage } from './RoomClient.js';
 
 export class ChatController {
@@ -41,6 +42,7 @@ export class ChatController {
 				}
 			}
 			this.messages.update((list) => [...list, decoded]);
+			playMessage();
 		});
 
 		socket.on('receive-chat-history', async (history: ChatMessage[]) => {

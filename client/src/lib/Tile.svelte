@@ -10,6 +10,8 @@
 	export let isCamOff = false;
 	export let isScreen = false;
 	export let micOff = false;
+	export let speaking = false;
+	export let handRaised = false;
 	export let tag: string | null = null;
 
 	$: initials = name
@@ -47,6 +49,7 @@
 	class:is-local={isLocal}
 	class:is-cam-off={isCamOff}
 	class:is-screen={isScreen}
+	class:speaking={speaking && !isScreen}
 	role="group"
 	aria-label={isScreen
 		? `${name} screen share`
@@ -73,6 +76,25 @@
 				/><path d="M5 10v2a7 7 0 0 0 12 5" /><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" /><path
 					d="M9 9v3a3 3 0 0 0 5.12 2.12"
 				/><line x1="12" y1="19" x2="12" y2="22" /></svg
+			>
+		</span>
+	{/if}
+	{#if handRaised && !isScreen}
+		<span class="hand-badge" title="Hand raised" aria-label="Hand raised">
+			<svg
+				viewBox="0 0 24 24"
+				width="13"
+				height="13"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				><path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2" /><path
+					d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2"
+				/><path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8" /><path
+					d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"
+				/></svg
 			>
 		</span>
 	{/if}
@@ -123,6 +145,28 @@
 	.tile.is-screen {
 		border-radius: 8px;
 		background: #000;
+	}
+
+	.tile.speaking {
+		outline: 2.5px solid var(--accent);
+		outline-offset: -2.5px;
+		box-shadow: 0 0 0 1px var(--accent), 0 0 14px -2px var(--accent-glow);
+	}
+
+	.hand-badge {
+		position: absolute;
+		top: 0.5rem;
+		left: 0.5rem;
+		width: 24px;
+		height: 24px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(10, 8, 7, 0.7);
+		backdrop-filter: blur(8px);
+		border-radius: 50%;
+		color: var(--accent);
+		z-index: 2;
 	}
 
 	.cam-off-cover {

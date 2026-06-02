@@ -19,7 +19,6 @@
 		tryPlay();
 	}
 
-	// Retry when the user taps to unlock audio (inside the gesture).
 	$: if ($audioUnlock >= 0 && videoElement) tryPlay();
 
 	onMount(tryPlay);

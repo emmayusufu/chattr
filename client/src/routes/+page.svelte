@@ -9,6 +9,7 @@
 	import { auth } from '../firebase';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import chattrMark from '$lib/assets/chattr-mark.png';
 
 	let isLoggedIn = false;
 	let user: User;
@@ -19,17 +20,14 @@
 
 	const signInWithGoogle = async () => {
 		error = null;
-		console.log('isTauriApp:', isTauriApp);
 		if (isTauriApp) {
 			try {
 				const mod = await import('@choochmeque/tauri-plugin-google-auth-api');
-				console.log('plugin module:', Object.keys(mod));
 				const response = await mod.signIn({
 					clientId: import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID || '',
 					clientSecret: import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_SECRET || '',
 					scopes: ['email', 'profile']
 				});
-				console.log('plugin response:', response);
 				const credential = GoogleAuthProvider.credential(response.idToken);
 				await signInWithCredential(auth, credential);
 			} catch (err: any) {
@@ -48,7 +46,9 @@
 	};
 
 	const newMeeting = () => {
-		const id = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, '0')).join('');
+		const id = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) =>
+			b.toString(16).padStart(2, '0')
+		).join('');
 		const keyBytes = crypto.getRandomValues(new Uint8Array(24));
 		const key = btoa(String.fromCharCode(...keyBytes))
 			.replaceAll('+', '-')
@@ -99,7 +99,7 @@
 		</div>
 	{:else if isLoggedIn}
 		<header class="topbar">
-			<span class="wordmark">chattr</span>
+			<span class="wordmark"><img src={chattrMark} alt="" />chattr</span>
 			<div class="user-strip">
 				<span class="live-pill">
 					<span class="dot" />
@@ -150,6 +150,7 @@
 		</section>
 	{:else}
 		<div class="signin">
+			<img class="signin-mark" src={chattrMark} alt="chattr" />
 			<span class="signin-eyebrow">chattr broadcasting co.</span>
 			<h1 class="display-xl">
 				Tune <span class="accent">in.</span>
@@ -216,9 +217,17 @@
 	}
 
 	.wordmark {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 1.4rem;
 		font-weight: 700;
 		color: var(--text);
+	}
+
+	.wordmark img {
+		height: 1.7rem;
+		width: auto;
 	}
 
 	.user-strip {
@@ -426,6 +435,12 @@
 		margin: 0 auto;
 		padding: 3rem 0;
 		animation: -global-fade-up 1s ease;
+	}
+
+	.signin-mark {
+		width: 64px;
+		height: 64px;
+		margin-bottom: 1.25rem;
 	}
 
 	.signin-eyebrow {

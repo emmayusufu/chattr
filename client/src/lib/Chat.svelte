@@ -28,7 +28,7 @@
 		textareaEl.style.height = Math.min(textareaEl.scrollHeight, 120) + 'px';
 	}
 
-	$: if (chatMessage !== undefined) autoResize();
+	$: if (!chatMessage && textareaEl) textareaEl.style.height = '';
 </script>
 
 <div class="chat-pane">
@@ -37,7 +37,7 @@
 			<p class="empty">No messages yet</p>
 		{/if}
 		{#each messages as msg}
-			<div class="msg" class:is-self={msg.sender === senderName} class:is-ai={msg.sender === 'AI'}>
+			<div class="msg" class:is-self={msg.sender === senderName}>
 				<span class="msg-sender">{msg.sender}</span>
 				<div class="msg-body">{@html renderMarkdown(msg.message)}</div>
 			</div>
@@ -50,15 +50,20 @@
 			bind:value={chatMessage}
 			placeholder="Message..."
 			rows="1"
+			on:input={autoResize}
 			on:keydown={handleKeydown}
 		/>
-		<button
-			type="submit"
-			class="send-btn"
-			disabled={!chatMessage.trim()}
-			aria-label="Send"
-		>
-			<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<button type="submit" class="send-btn" disabled={!chatMessage.trim()} aria-label="Send">
+			<svg
+				viewBox="0 0 24 24"
+				width="16"
+				height="16"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
 				<line x1="22" y1="2" x2="11" y2="13" />
 				<polygon points="22 2 15 22 11 13 2 9 22 2" />
 			</svg>
@@ -103,20 +108,12 @@
 		background: var(--accent-soft);
 	}
 
-	.msg.is-ai {
-		background: rgba(244, 237, 228, 0.06);
-	}
-
 	.msg-sender {
 		display: block;
 		font-weight: 600;
 		font-size: 0.7rem;
 		color: var(--accent);
 		margin-bottom: 0.1rem;
-	}
-
-	.msg.is-ai .msg-sender {
-		color: var(--text-muted);
 	}
 
 	.msg-body {
@@ -126,14 +123,21 @@
 		line-height: 1.45;
 	}
 
-	.msg-body :global(p) { margin: 0; }
+	.msg-body :global(p) {
+		margin: 0;
+	}
 	.msg-body :global(p + p),
 	.msg-body :global(ul),
 	.msg-body :global(ol),
 	.msg-body :global(pre),
-	.msg-body :global(blockquote) { margin-top: 0.3rem; }
+	.msg-body :global(blockquote) {
+		margin-top: 0.3rem;
+	}
 	.msg-body :global(ul),
-	.msg-body :global(ol) { margin-bottom: 0; padding-left: 1.1rem; }
+	.msg-body :global(ol) {
+		margin-bottom: 0;
+		padding-left: 1.1rem;
+	}
 
 	.msg-body :global(code) {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -151,9 +155,22 @@
 		overflow-x: auto;
 	}
 
-	.msg-body :global(pre code) { background: none; padding: 0; font-size: 0.8em; line-height: 1.4; }
-	.msg-body :global(a) { color: var(--accent); text-decoration: underline; }
-	.msg-body :global(blockquote) { margin: 0; padding-left: 0.5rem; border-left: 2px solid var(--border-strong); color: var(--text-muted); }
+	.msg-body :global(pre code) {
+		background: none;
+		padding: 0;
+		font-size: 0.8em;
+		line-height: 1.4;
+	}
+	.msg-body :global(a) {
+		color: var(--accent);
+		text-decoration: underline;
+	}
+	.msg-body :global(blockquote) {
+		margin: 0;
+		padding-left: 0.5rem;
+		border-left: 2px solid var(--border-strong);
+		color: var(--text-muted);
+	}
 
 	.composer {
 		display: flex;
@@ -179,6 +196,10 @@
 		line-height: 1.4;
 	}
 
+	.composer textarea:focus {
+		box-shadow: 0 0 0 2px var(--accent-soft);
+	}
+
 	.composer textarea::placeholder {
 		color: var(--text-faint);
 	}
@@ -198,6 +219,19 @@
 		flex: 0 0 36px;
 	}
 
-	.send-btn:hover:not(:disabled) { opacity: 0.85; }
-	.send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+	.send-btn:hover:not(:disabled) {
+		opacity: 0.85;
+	}
+	.send-btn:disabled {
+		opacity: 0.3;
+		cursor: not-allowed;
+	}
+
+	@media (max-width: 640px) {
+		.send-btn {
+			width: 44px;
+			height: 44px;
+			flex: 0 0 44px;
+		}
+	}
 </style>

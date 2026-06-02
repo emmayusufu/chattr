@@ -1,4 +1,6 @@
 <script lang="ts">
+	import chattrMark from '$lib/assets/chattr-mark.png';
+
 	export let roomId: string;
 	export let nameInput: string;
 	export let isSignedIn: boolean;
@@ -8,7 +10,7 @@
 
 <div class="lobby-shell">
 	<header class="lobby-top">
-		<a class="wordmark" href="/">chattr</a>
+		<a class="wordmark" href="/"><img src={chattrMark} alt="" />chattr</a>
 		<span class="lobby-eyebrow">live channel</span>
 	</header>
 
@@ -70,11 +72,19 @@
 	}
 
 	.wordmark {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 1.4rem;
 		font-weight: 700;
 		color: var(--text);
 		text-decoration: none;
 		transition: color 0.2s;
+	}
+
+	.wordmark img {
+		height: 1.7rem;
+		width: auto;
 	}
 
 	.wordmark:hover {
