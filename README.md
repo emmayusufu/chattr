@@ -20,6 +20,7 @@ A multi-user video calling app built on top of a custom WebRTC SFU. Rooms, video
 - One-time invite tokens that let trusted guests skip the lobby.
 - Mute and camera-off that actually release the OS capture indicators, so there's no "still recording" mic dot when you're muted.
 - Adaptive video quality via simulcast. Slow viewers get a lower spatial layer instead of frozen frames.
+- Low-data mode: one tap drops the call to audio only (stops your camera/screen and pauses inbound video) so it holds up on 2G/EDGE.
 - Wi-Fi-blip recovery: socket reconnects, mediasoup state rebuilds, call resumes in a couple of seconds.
 - End-to-end encrypted chat via URL fragment plus a per-message HKDF ratchet. The server only ever sees ciphertext.
 - Capacity caps and per-socket rate limits on the server.

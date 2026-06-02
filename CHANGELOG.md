@@ -19,47 +19,61 @@ All notable changes to chattr, newest first. Format follows
 ## [Unreleased]
 
 ### Added
-- **Speaking indicator** — the current dominant speaker's tile gets an accent
-  ring, using the existing per-room audio-level signal.
+- **Low-data (audio-only) mode.** A control-bar toggle drops the call to audio
+  only: it stops sending your camera and screen and pauses all inbound video
+  while audio keeps flowing, so a call survives on 2G/EDGE instead of freezing.
+- **Speaking indicator** — the dominant speaker's tile gets an accent ring,
+  from the existing per-room audio-level signal.
 - **Raise hand** — a control-bar toggle broadcasts a hand-raised state (tracked
   per user so late joiners are accurate), shown as a badge on the raiser's tile.
 - **Notification sounds.** Gentle Web Audio chimes (generated in code, no audio
   files) for someone waiting to be let in (host only), join, leave, incoming
-  chat, and hand-raise. Persisted on/off preference.
+  chat, and hand-raise.
 - **Host migration.** When the host's connection is gone for good (grace
   expired), the room is handed to the oldest still-connected participant instead
   of ending for everyone, so a host dropping off a flaky network no longer kills
   the meeting.
+- **Brand identity.** The chattr logo mark across the landing, sign-in, and
+  lobby screens, a new favicon, and regenerated desktop app icons.
+
+### Changed
+- **Mobile call view redesigned.** A swipeable carousel: each page holds a few
+  uncropped tiles, a screen share gets its own full page, and the view
+  auto-follows the active speaker. Chat moved into the control bar and people
+  into a top-right pill. The grid fills the screen without scrolling.
+- **Wider RTC UDP port range** so a busy room doesn't run out of media ports.
 
 ### Removed
+- **Private AI chat.** The Gemini-backed bring-your-own-key sidebar is gone: the
+  key UI was unreachable, it shipped shared video frames to a third party, and
+  it cut against the poor-network, privacy-first direction.
 - **Live minutes** (per-client Web Speech transcription). It mis-attributed
-  speech to the wrong person whenever anyone was on speakers, so it was more
-  misleading than useful. It will return as server-side transcription.
+  speech to the wrong person, so it was more misleading than useful. It will
+  return as server-side transcription.
 
 ### Fixed
-- **Resilient resync on poor networks.** The client periodically re-fetches the
-  authoritative producer list (and, for the host, the waiting-room list) and
-  fills gaps, so audio/video and pending join requests dropped by a flaky
-  connection self-heal instead of needing a manual rejoin.
-- **ICE recovers from `disconnected`, not just `failed`.** Mobile paths often
-  drop to `disconnected` (NAT rebind, radio handoff) and never reach `failed`;
-  the client now restarts ICE after a short grace so media stops freezing.
-- **Dropped pause/resume no longer leaves a tile black.** The client re-asserts
-  the desired video visibility each resync and the server only acts on a real
-  state change, so a lost resume packet self-heals instead of sticking.
-- **Faster, non-blocking resync.** The periodic re-fetch uses a short single
-  attempt (the loop is the retry) and consumes producers concurrently, so one
-  stalled stream can't delay everyone else's audio recovery.
-- **Reloads reclaim your seat.** Identity is persisted per-room in
-  sessionStorage, so a page reload resumes the same participant (reclaiming its
-  slot within the grace window) instead of leaving a ghost against the room cap.
-- Chat composer no longer opens oversized on first open. It was measuring the
-  textarea mid-panel-animation; it now grows only on real input.
-- **Leaving removes you immediately.** An explicit leave tells the server to
-  drop you at once, so your tile no longer lingers on others' screens for the
-  reconnect grace window.
-- **Audio prompt clears on any interaction.** The "tap to enable audio" prompt
-  now also unlocks on the next click or keypress anywhere, not just its button.
+- **A closed or refreshed tab disappears at once.** On `pagehide` the client
+  fires a token-verified `sendBeacon` and cleanly drops the socket, so the
+  server removes a leaver immediately instead of holding their tile. A real
+  network drop (page still alive) instead keeps a short grace and reconnects in
+  place. No "reconnecting" placeholder either way.
+- **The roster self-heals on flaky links.** The periodic reconcile re-fetches
+  the authoritative participant list (not just the producer list), so a missed
+  join or leave is corrected within seconds rather than leaving a ghost tile.
+- **ICE recovers from `disconnected`, not just `failed`** (NAT rebind, radio
+  handoff), restarting ICE after a short grace so media stops freezing.
+- **Faster dead-socket detection.** A tighter Socket.IO heartbeat notices a
+  vanished client sooner without dropping a laggy-but-alive mobile link.
+- **Dropped pause/resume no longer leaves a tile black.** Visibility is
+  re-asserted each resync and the server only acts on a real state change.
+- **Screen share.** Sharing your whole screen no longer feeds back into an
+  infinite tunnel, a window or tab previews live, and the share button shows
+  only where the browser actually supports capture.
+- **Mobile fits without scrolling** and the speaking ring hugs the video.
+- **Mobile audio autoplay** unlocks on the first interaction anywhere, with no
+  separate "tap to enable audio" prompt.
+- Chat composer no longer opens oversized on first open; it grows only on real
+  input.
 
 ## [0.3.0] - 2026-05-30
 
