@@ -78,6 +78,7 @@ export class RoomClient {
 	readonly isHandRaised: Writable<boolean> = writable(false);
 	readonly isCamOff: Writable<boolean> = writable(false);
 	readonly isSharing: Writable<boolean> = writable(false);
+	readonly isLowData: Writable<boolean> = writable(false);
 	readonly isHost: Writable<boolean> = writable(false);
 	readonly pendingJoiners: Writable<PendingJoiner[]> = writable([]);
 	readonly joinStatus: Writable<JoinStatus> = writable('connecting');
@@ -658,6 +659,13 @@ export class RoomClient {
 			);
 			this.isCamOff.set(true);
 		}
+	}
+
+	async setLowData(on: boolean): Promise<void> {
+		this.isLowData.set(on);
+		if (!on) return;
+		if (await this.readStore(this.isSharing)) await this.stopShare();
+		if (!(await this.readStore(this.isCamOff))) await this.toggleCam();
 	}
 
 	async toggleScreen(): Promise<void> {

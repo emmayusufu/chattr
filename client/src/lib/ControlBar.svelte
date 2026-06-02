@@ -4,11 +4,13 @@
 	export let isMuted: boolean;
 	export let isCamOff: boolean;
 	export let isSharing: boolean;
+	export let isLowData = false;
 	export let chatOpen = false;
 	export let activeTab: string = 'chat';
 	export let onToggleMute: () => void;
 	export let onToggleCam: () => void;
 	export let onToggleScreen: () => void;
+	export let onToggleLowData: () => void = () => {};
 	export let isHandRaised = false;
 	export let onToggleHand: () => void;
 	export let onOpenTab: (tab: string) => void;
@@ -59,50 +61,52 @@
 			{/if}
 		</button>
 
-		<button
-			class="ctl"
-			class:ctl-off={isCamOff}
-			on:click={onToggleCam}
-			title={isCamOff ? 'Turn camera on' : 'Turn camera off'}
-			aria-label={isCamOff ? 'Turn camera on' : 'Turn camera off'}
-		>
-			{#if isCamOff}
-				<svg
-					viewBox="0 0 24 24"
-					width="20"
-					height="20"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					><path
-						d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"
-					/><line x1="1" y1="1" x2="23" y2="23" /></svg
-				>
-			{:else}
-				<svg
-					viewBox="0 0 24 24"
-					width="20"
-					height="20"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					><polygon points="23 7 16 12 23 17 23 7" /><rect
-						x="1"
-						y="5"
-						width="15"
-						height="14"
-						rx="2"
-						ry="2"
-					/></svg
-				>
-			{/if}
-		</button>
+		{#if !isLowData}
+			<button
+				class="ctl"
+				class:ctl-off={isCamOff}
+				on:click={onToggleCam}
+				title={isCamOff ? 'Turn camera on' : 'Turn camera off'}
+				aria-label={isCamOff ? 'Turn camera on' : 'Turn camera off'}
+			>
+				{#if isCamOff}
+					<svg
+						viewBox="0 0 24 24"
+						width="20"
+						height="20"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						><path
+							d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"
+						/><line x1="1" y1="1" x2="23" y2="23" /></svg
+					>
+				{:else}
+					<svg
+						viewBox="0 0 24 24"
+						width="20"
+						height="20"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						><polygon points="23 7 16 12 23 17 23 7" /><rect
+							x="1"
+							y="5"
+							width="15"
+							height="14"
+							rx="2"
+							ry="2"
+						/></svg
+					>
+				{/if}
+			</button>
+		{/if}
 
-		{#if canShareScreen}
+		{#if canShareScreen && !isLowData}
 			<button
 				class="ctl"
 				class:ctl-on={isSharing}
@@ -128,6 +132,29 @@
 				>
 			</button>
 		{/if}
+
+		<button
+			class="ctl"
+			class:ctl-on={isLowData}
+			on:click={onToggleLowData}
+			title={isLowData ? 'Low data on (audio only)' : 'Low data mode (audio only)'}
+			aria-label={isLowData ? 'Turn off low data mode' : 'Turn on low data mode (audio only)'}
+			aria-pressed={isLowData}
+		>
+			<svg
+				viewBox="0 0 24 24"
+				width="20"
+				height="20"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				><path
+					d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.52-4.48 10-10 10Z"
+				/><path d="M2 21c0-3 1.85-5.36 5.08-6" /></svg
+			>
+		</button>
 
 		<button
 			class="ctl"

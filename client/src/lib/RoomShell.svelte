@@ -21,10 +21,13 @@
 		isHandRaised,
 		isCamOff,
 		isSharing,
+		isLowData,
 		isHost,
 		pendingJoiners,
 		dominantSpeaker
 	} = room;
+
+	$: lowData = $isLowData;
 
 	let speakingOrder: string[] = [];
 	$: if ($dominantSpeaker) {
@@ -51,8 +54,9 @@
 	}
 
 	$: hasScreenShare =
-		$localScreenStream !== null ||
-		Object.values($participants).some((p) => p.screenStream !== null);
+		!lowData &&
+		($localScreenStream !== null ||
+			Object.values($participants).some((p) => p.screenStream !== null));
 
 	const MAX_VISIBLE_THUMBS = 5;
 
@@ -74,10 +78,10 @@
 		if ($localStream) {
 			list.push({
 				id: '_self',
-				stream: $localStream,
+				stream: lowData ? null : $localStream,
 				name: senderName,
 				isLocal: true,
-				isCamOff: $isCamOff,
+				isCamOff: lowData || $isCamOff,
 				mirror: true,
 				micOff: $isMuted,
 				speaking: $dominantSpeaker === room.participantId,
@@ -89,10 +93,10 @@
 			.sort(([a], [b]) => speakerRank(a) - speakerRank(b))
 			.map(([pid, p]) => ({
 				id: pid,
-				stream: p.videoStream,
+				stream: lowData ? null : p.videoStream,
 				name: p.name,
 				isLocal: false,
-				isCamOff: !p.videoStream,
+				isCamOff: lowData || !p.videoStream,
 				mirror: false,
 				micOff: p.muted,
 				speaking: $dominantSpeaker === pid,
@@ -196,6 +200,9 @@
 
 	$: renderedParticipantIds = (() => {
 		const ids = new Set<string>();
+		if (lowData) {
+			return [];
+		}
 		if (mobileCarousel) {
 			for (const pg of carouselPages)
 				for (const c of pg) if (c.kind === 'tile' && !c.thumb.isLocal) ids.add(c.thumb.id);
@@ -212,6 +219,9 @@
 
 	$: participantLayers = (() => {
 		const m: Record<string, number> = {};
+		if (lowData) {
+			return m;
+		}
 		if (mobileCarousel) {
 			carouselPages.forEach((pg, i) => {
 				const hi = pg.length === 1 ? 2 : 1;
@@ -440,11 +450,13 @@
 		isMuted={$isMuted}
 		isCamOff={$isCamOff}
 		isSharing={$isSharing}
+		isLowData={$isLowData}
 		{chatOpen}
 		activeTab={sidebarTab}
 		onToggleMute={() => room.toggleMute()}
 		onToggleCam={() => room.toggleCam()}
 		onToggleScreen={() => room.toggleScreen()}
+		onToggleLowData={() => room.setLowData(!$isLowData)}
 		isHandRaised={$isHandRaised}
 		onToggleHand={() => room.toggleHand()}
 		onOpenTab={openTab}
