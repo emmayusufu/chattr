@@ -1,38 +1,44 @@
-# create-svelte
+# chattr — web client
 
-Everything you need to build a Svelte project, powered by [`create-svelte`](https://github.com/sveltejs/kit/tree/master/packages/create-svelte).
+The SvelteKit front end for chattr: the lobby, room UI, tiles, chat, and the
+mediasoup signaling client. For architecture, the SFU, and deployment, see the
+[root README](../README.md).
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
-
-```bash
-# create a new project in the current directory
-npm create svelte@latest
-
-# create a new project in my-app
-npm create svelte@latest my-app
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Setup
 
 ```bash
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+npm install
+cp .env.example .env   # then fill in the values below
 ```
 
-## Building
+Environment variables (see `.env.example` for the full list):
 
-To create a production version of your app:
+- `VITE_SERVER_URL` — URL of the chattr server (e.g. `http://localhost:3000` in dev, `https://your-domain.com` in prod).
+- `VITE_FIREBASE_*` — Firebase web config for Google sign-in.
+- `VITE_TURN_URL` / `VITE_TURN_USERNAME` / `VITE_TURN_CREDENTIAL` — optional TURN server for UDP-blocked clients.
+
+## Develop
 
 ```bash
-npm run build
+npm run dev            # start the dev server
+npm run dev -- --open  # and open a browser tab
 ```
 
-You can preview the production build with `npm run preview`.
+## Build
 
-> To deploy your app, you may need to install an [adapter](https://kit.svelte.dev/docs/adapters) for your target environment.
+```bash
+npm run build          # production build into build/
+npm run preview        # preview the production build locally
+```
+
+The build output is static — host it anywhere (Vercel, Netlify, Cloudflare
+Pages, S3, or the same VPS as the server).
+
+## Checks and tests
+
+```bash
+npm run check          # svelte-check type checking
+npm run lint           # prettier + eslint
+npm run test:unit      # vitest unit tests
+npm run test:integration  # playwright e2e (drives two browser contexts through a room)
+```

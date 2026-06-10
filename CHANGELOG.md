@@ -14,7 +14,7 @@ All notable changes to chattr, newest first. Format follows
   patch, a breaking change (`!` / `BREAKING CHANGE`) → major.
 - **Releases are cut manually**: bump the root version, move `Unreleased` into
   a dated version section here, tag `vX.Y.Z` on `main`, and create a matching
-  GitHub Release (CI auto-deploys on push to `main`).
+  GitHub Release. Deploy is manual (see the Deploy section in the README).
 
 ## [Unreleased]
 

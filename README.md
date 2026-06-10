@@ -123,11 +123,11 @@ npm run test:integration
 3. **Server env vars** (see `server/.env.example` for the full list):
    ```
    MEDIASOUP_ANNOUNCED_IP=<your-public-IP>
-   CLIENT_ORIGIN=https://chattr.jengahq.com
+   CLIENT_ORIGIN=https://your-domain.com
    ```
-4. **Reverse proxy with TLS.** The included `deploy/Caddyfile` handles HTTPS via Let's Encrypt and adds HSTS, X-Frame-Options, a Permissions-Policy locking down to mic, cam, and display-capture only, and a real Content-Security-Policy. Domain and contact email are already set to `chattr.jengahq.com` and `kimaswaemma36@gmail.com`. Change those if you fork.
+4. **Reverse proxy with TLS.** The included `deploy/Caddyfile` handles HTTPS via Let's Encrypt and adds HSTS, X-Frame-Options, a Permissions-Policy locking down to mic, cam, and display-capture only, and a real Content-Security-Policy. Set the domain and Let's Encrypt contact email in `deploy/Caddyfile` to your own (`your-domain.com` and `you@example.com`).
 5. **Run it with Docker.** The repo includes a `docker-compose.yml` and a `server/Dockerfile`. From the box, run `docker compose up -d`. That brings up the server and Caddy together with auto-renew TLS. If you'd rather not use Docker, `npm run build && npm start` under pm2 or systemd works just as well.
-6. **Client build**: set `VITE_SERVER_URL=https://chattr.jengahq.com` in the client's env, run `npm run build`, and deploy the `build/` output to any static host (Vercel, Netlify, Cloudflare Pages, S3, or the same VPS).
+6. **Client build**: set `VITE_SERVER_URL=https://your-domain.com` in the client's env, run `npm run build`, and deploy the `build/` output to any static host (Vercel, Netlify, Cloudflare Pages, S3, or the same VPS).
 
 ## Known limits
 
